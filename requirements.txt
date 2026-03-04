@@ -1,2 +1,5 @@
 ﻿requests
 Pillow
+numpy
+dashscope
+openai

@@ -10,3 +10,4 @@ venv/
 *.log
 *.DS_Store
 system_instructions/*.bak
+system_instructions/*.txt
