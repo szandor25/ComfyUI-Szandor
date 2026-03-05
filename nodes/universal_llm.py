@@ -109,8 +109,11 @@ class UniversalLLMNode:
                 ],
                 "temperature": temperature,
                 "max_tokens": max_tokens,
-                "seed": seed % 1000000 # NiektĂłre API limitujÄ… wielkoĹ›Ä‡ seeda
             }
+
+            # Gemini nie obsługuje parametru seed przez OpenAI-compatible endpoint
+            if provider_name != "Google (Gemini)":
+                payload["seed"] = seed % 1000000
 
             if thinking_budget > 0:
                 payload["extra_body"] = {"thinking_budget": thinking_budget}
