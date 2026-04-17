@@ -20,9 +20,20 @@ Zestaw zaawansowanych węzłów (Custom Nodes) do ComfyUI, skupiający się na i
 *   **Lora Tester Selector**: Pozwala wybrać wiele modeli LoRA i zdefiniować ich siłę (strength). Umożliwia łatwe tworzenie testów porównawczych (A/B testing).
 *   **Lora Grid Saver**: Automatycznie układa wygenerowane obrazy w siatkę (Grid) z opisami, co ułatwia wizualne porównanie wpływu różnych modeli LoRA na generowany obraz.
 
+### 🖼️ Ładowanie Obrazów (Image Loading)
+*   **Multi Image Loader**: Zaawansowany węzeł do wczytywania wielu obrazów jednocześnie (do 16). Funkcje:
+    *   Suwak `image_count` (1–16) – kontroluje liczbę aktywnych slotów i wyjść
+    *   Miniaturki – każdy załadowany obraz wyświetla podgląd bezpośrednio w nodzie
+    *   Kliknięcie slotu – otwiera okno wyboru pliku i przesyła go do ComfyUI
+    *   Drag & Drop – przeciągnięcie obrazów na noda automatycznie je dodaje (wypełnia kolejne wolne sloty; `image_count` rozszerza się automatycznie)
+    *   Przycisk ✕ – usuwa zdjęcie z danego slotu
+    *   Dynamiczne wyjścia – tyle wyjść `obraz_N` ile wynosi `image_count`
+    *   Zapis/odczyt workflow – stan (nazwy plików, liczba slotów) jest zapisywany w pliku workflow
+
 ### 🛠️ Narzędzia (Utils)
 *   **Batch Image Loader With Name**: Wczytywanie obrazów z folderu wraz z ich nazwami (przydatne przy img2img).
 *   **Text Directory Loader**: Wczytywanie zawartości plików tekstowych z całego katalogu.
+*   **Text File Picker (Folder)**: Wczytuje prompt z wybranego pliku `.txt` w podanym katalogu, z opcjami sortowania (nazwa/data modyfikacji, rosnąco/malejąco).
 *   **Save Text File**: Prosty zapis wygenerowanych tekstów (np. promptów) do pliku.
 
 ## ⚙️ Instalacja
@@ -68,9 +79,20 @@ A collection of custom nodes for ComfyUI, focusing on LLM integration (Prompt En
 *   **Lora Tester Selector**: Allows selection of multiple LoRA models and definition of their strengths. Enables easy benchmarking and A/B testing.
 *   **Lora Grid Saver**: Automatically arranges generated images into a labeled grid, making it easy to visually compare the impact of different LoRA models.
 
+### 🖼️ Image Loading
+*   **Multi Image Loader**: An advanced node for loading multiple images at once (up to 16). Features:
+    *   `image_count` slider (1–16) – controls the number of active slots and output pins
+    *   Thumbnails – each loaded image displays a preview directly inside the node
+    *   Click to upload – clicking an empty slot opens a file picker and uploads the image to ComfyUI
+    *   Drag & Drop – drag one or more images onto the node to fill slots automatically (`image_count` expands if needed)
+    *   ✕ button – removes the image from a slot
+    *   Dynamic outputs – exactly `image_count` outputs named `obraz_N`
+    *   Workflow save/load – slot filenames and count are saved in the workflow JSON
+
 ### 🛠️ Utilities
 *   **Batch Image Loader With Name**: Loads images from a folder along with their filenames (useful for batch img2img).
 *   **Text Directory Loader**: Loads the content of text files from a specified directory.
+*   **Text File Picker (Folder)**: Loads a prompt from a selected `.txt` file in a target folder, with sorting options (name/modified date, ascending/descending).
 *   **Save Text File**: Simple node to save generated text (e.g., prompts) to a file.
 
 ## ⚙️ Installation

@@ -131,14 +131,103 @@ class TextDirectoryLoader:
 
         return (content, files[actual_index], len(files))
 
+class TextFilePickerLoader:
+    _ui_directory = "C:/prompty"
+    _ui_sort_by = "name"
+    _ui_sort_order = "asc"
+    _ui_refresh_counter = 0
+    _ui_files_cache = ["<no_txt_files>"]
+
+    @classmethod
+    def _list_txt_files(cls, directory_path, sort_by="name", sort_order="asc"):
+        if not os.path.isdir(directory_path):
+            return []
+
+        files = [
+            f for f in os.listdir(directory_path)
+            if f.lower().endswith(".txt")
+        ]
+
+        reverse = sort_order == "desc"
+
+        if sort_by == "modified_time":
+            files.sort(
+                key=lambda f: os.path.getmtime(os.path.join(directory_path, f)),
+                reverse=reverse
+            )
+        else:
+            files.sort(key=lambda f: f.lower(), reverse=reverse)
+
+        return files
+
+    @classmethod
+    def _refresh_ui_cache(cls, directory_path, sort_by="name", sort_order="asc", refresh_counter=0):
+        cls._ui_directory = directory_path
+        cls._ui_sort_by = sort_by
+        cls._ui_sort_order = sort_order
+        cls._ui_refresh_counter = refresh_counter
+        files = cls._list_txt_files(directory_path, sort_by, sort_order)
+        cls._ui_files_cache = files if files else ["<no_txt_files>"]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        cls._refresh_ui_cache(
+            cls._ui_directory,
+            cls._ui_sort_by,
+            cls._ui_sort_order,
+            cls._ui_refresh_counter
+        )
+
+        return {
+            "required": {
+                "directory_path": ("STRING", {"default": cls._ui_directory}),
+                "sort_by": (["name", "modified_time"], {"default": cls._ui_sort_by}),
+                "sort_order": (["asc", "desc"], {"default": cls._ui_sort_order}),
+                "refresh_counter": ("INT", {"default": cls._ui_refresh_counter, "min": 0, "max": 0xffffffffffffffff}),
+                "selected_file": (cls._ui_files_cache, {"default": cls._ui_files_cache[0]}),
+                "index_fallback": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "INT", "STRING")
+    RETURN_NAMES = ("text", "filename", "total_files", "available_files")
+    FUNCTION = "load_selected_text"
+    CATEGORY = "Moje Nody"
+
+    def load_selected_text(self, directory_path, sort_by, sort_order, refresh_counter, selected_file, index_fallback):
+        files = self._list_txt_files(directory_path, sort_by, sort_order)
+        self._refresh_ui_cache(directory_path, sort_by, sort_order, refresh_counter)
+
+        if not os.path.isdir(directory_path):
+            return ("Folder nie istnieje!", "", 0, "")
+
+        if not files:
+            return ("Brak plikow .txt w folderze", "", 0, "")
+
+        if selected_file in files:
+            filename = selected_file
+        else:
+            filename = files[index_fallback % len(files)]
+
+        file_path = os.path.join(directory_path, filename)
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        available_files = "\n".join(files)
+
+        return (content, filename, len(files), available_files)
+
 NODE_CLASS_MAPPINGS = {
     "BatchImageLoaderWithName": BatchImageLoaderWithName,
     "SaveTextFile": SaveTextFile,
-    "TextDirectoryLoader": TextDirectoryLoader
+    "TextDirectoryLoader": TextDirectoryLoader,
+    "TextFilePickerLoader": TextFilePickerLoader
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "BatchImageLoaderWithName": "Batch Image Loader (Folder)",
     "SaveTextFile": "Save Text File (Custom Path)",
-    "TextDirectoryLoader": "Text Batch Loader (Folder)"
+    "TextDirectoryLoader": "Text Batch Loader (Folder)",
+    "TextFilePickerLoader": "Text File Picker (Folder)"
 }

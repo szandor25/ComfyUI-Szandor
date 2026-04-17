@@ -42,7 +42,7 @@ class LoraTesterSelector:
     RETURN_TYPES = ("MODEL", "CLIP", "STRING", "INT")
     RETURN_NAMES = ("MODEL", "CLIP", "label", "total_combos")
     FUNCTION = "select_lora"
-    CATEGORY = "Moje_Nody"
+    CATEGORY = "Moje Nody"
 
     def select_lora(self, model, clip, strengths, index, lora_1, lora_2, lora_3, lora_4, lora_5, extra_loras=""):
         # 1. Zbieramy LoRy ze slotów (pomijamy "None")
@@ -111,7 +111,7 @@ class LoraGridSaver:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "save"
     OUTPUT_NODE = True
-    CATEGORY = "Moje_Nody"
+    CATEGORY = "Moje Nody"
 
     def save(self, image, label, index, total, columns, filename_prefix, prompt=None, extra_pnginfo=None):
         global GRID_ACCUMULATOR
