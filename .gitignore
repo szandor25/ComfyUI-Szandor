@@ -1,7 +1,10 @@
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -9,5 +12,8 @@ venv/
 .idea/
 *.log
 *.DS_Store
+.*/
 system_instructions/*.bak
 system_instructions/*.txt
+nodes/system_instructions/*.bak
+nodes/system_instructions/*.txt

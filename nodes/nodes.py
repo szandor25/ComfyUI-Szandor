@@ -1,4 +1,5 @@
 import os
+import math
 import torch
 import numpy as np
 from PIL import Image, ImageOps
@@ -218,16 +219,94 @@ class TextFilePickerLoader:
 
         return (content, filename, len(files), available_files)
 
+class SzandorAutoCrop:
+    ASPECT_RATIOS = {
+        "9:16": (9, 16),
+        "16:9": (16, 9),
+        "1:1": (1, 1),
+        "4:3": (4, 3),
+        "3:4": (3, 4),
+        "keep original": None,
+    }
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "crop_method": (list(cls.ASPECT_RATIOS.keys()), {"default": "9:16"}),
+                "crop_position": (["center", "top/left", "bottom/right"], {"default": "center"}),
+                "divisible_by": (["64", "32", "16", "8"], {"default": "64"}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "auto_crop"
+    CATEGORY = "Moje Nody"
+
+    @staticmethod
+    def _largest_divisible_size(width, height, ratio, divisible_by):
+        if ratio is None:
+            crop_width = (width // divisible_by) * divisible_by
+            crop_height = (height // divisible_by) * divisible_by
+            return max(crop_width, 1), max(crop_height, 1)
+
+        ratio_width, ratio_height = ratio
+        max_scale = min(width // ratio_width, height // ratio_height)
+        scale_step = math.lcm(
+            divisible_by // math.gcd(ratio_width, divisible_by),
+            divisible_by // math.gcd(ratio_height, divisible_by),
+        )
+        scale = (max_scale // scale_step) * scale_step
+
+        if scale > 0:
+            return ratio_width * scale, ratio_height * scale
+
+        crop_width = (width // divisible_by) * divisible_by
+        crop_height = (height // divisible_by) * divisible_by
+        return max(crop_width, 1), max(crop_height, 1)
+
+    @staticmethod
+    def _offset(source_size, crop_size, crop_position):
+        if crop_position == "top/left":
+            return 0
+        if crop_position == "bottom/right":
+            return source_size - crop_size
+        return (source_size - crop_size) // 2
+
+    def auto_crop(self, image, crop_method, crop_position, divisible_by):
+        if image.ndim != 4:
+            raise ValueError("Szandor Auto Crop oczekuje obrazu IMAGE w formacie B,H,W,C.")
+
+        _, height, width, _ = image.shape
+        ratio = self.ASPECT_RATIOS[crop_method]
+        crop_width, crop_height = self._largest_divisible_size(
+            width,
+            height,
+            ratio,
+            int(divisible_by),
+        )
+
+        crop_width = min(crop_width, width)
+        crop_height = min(crop_height, height)
+        x = self._offset(width, crop_width, crop_position)
+        y = self._offset(height, crop_height, crop_position)
+
+        return (image[:, y:y + crop_height, x:x + crop_width, :].contiguous(),)
+
 NODE_CLASS_MAPPINGS = {
     "BatchImageLoaderWithName": BatchImageLoaderWithName,
     "SaveTextFile": SaveTextFile,
     "TextDirectoryLoader": TextDirectoryLoader,
-    "TextFilePickerLoader": TextFilePickerLoader
+    "TextFilePickerLoader": TextFilePickerLoader,
+    "SzandorAutoCrop": SzandorAutoCrop
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "BatchImageLoaderWithName": "Batch Image Loader (Folder)",
     "SaveTextFile": "Save Text File (Custom Path)",
     "TextDirectoryLoader": "Text Batch Loader (Folder)",
-    "TextFilePickerLoader": "Text File Picker (Folder)"
+    "TextFilePickerLoader": "Text File Picker (Folder)",
+    "SzandorAutoCrop": "Szandor Auto Crop"
 }
