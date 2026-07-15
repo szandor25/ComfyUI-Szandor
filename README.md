@@ -17,6 +17,7 @@ Zestaw zaawansowanych węzłów (Custom Nodes) do ComfyUI, skupiający się na i
 *   **Qwen Wan Resolution Node**: Węzeł pomocniczy dedykowany do pracy z modelami wideo (np. Wan2.1), zarządzający rozdzielczością i formatowaniem promptów wideo.
 
 ### 🧪 Testowanie LoRA (LoRA Testing)
+*   **LoRA Stack z miniaturami (Szandor)**: Nakłada wiele LoRA kolejno na wejścia `MODEL` i `CLIP`. Każdy wiersz ma przełącznik, suwak siły i automatyczną miniaturę; najechanie na miniaturę pokazuje większy podgląd. Obraz podglądu należy umieścić obok LoRA pod tą samą nazwą, np. `styl.safetensors` + `styl.png` (obsługiwane są PNG, JPG, JPEG i WebP).
 *   **Lora Tester Selector**: Pozwala wybrać wiele modeli LoRA i zdefiniować ich siłę (strength). Umożliwia łatwe tworzenie testów porównawczych (A/B testing).
 *   **Lora Grid Saver**: Automatycznie układa wygenerowane obrazy w siatkę (Grid) z opisami, co ułatwia wizualne porównanie wpływu różnych modeli LoRA na generowany obraz.
 
@@ -76,6 +77,7 @@ A collection of custom nodes for ComfyUI, focusing on LLM integration (Prompt En
 *   **Qwen Wan Resolution Node**: A helper node dedicated to video models (e.g., Wan2.1), managing resolution settings and video prompt formatting.
 
 ### 🧪 LoRA Testing Tools
+*   **LoRA Stack with thumbnails (Szandor)**: Applies multiple LoRAs in order to `MODEL` and `CLIP`. Each row has an enable toggle, strength slider, and an automatically matched thumbnail; hovering the thumbnail opens a larger preview. Store the image beside the LoRA with the same stem, for example `style.safetensors` + `style.png` (PNG, JPG, JPEG, and WebP are supported).
 *   **Lora Tester Selector**: Allows selection of multiple LoRA models and definition of their strengths. Enables easy benchmarking and A/B testing.
 *   **Lora Grid Saver**: Automatically arranges generated images into a labeled grid, making it easy to visually compare the impact of different LoRA models.
 

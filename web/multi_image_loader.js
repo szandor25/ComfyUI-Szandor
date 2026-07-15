@@ -246,6 +246,96 @@ function makeSlotWidget(node, idx) {
     return w;
 }
 
+// ─── safe output removal ─────────────────────────────────────────────────────
+
+function getGraphLink(graph, linkId) {
+    const links = graph?.links;
+    if (!links || linkId == null) return null;
+
+    if (links instanceof Map) {
+        return links.get(linkId) ?? links.get(String(linkId)) ?? null;
+    }
+
+    return links[linkId] ?? links[String(linkId)] ?? null;
+}
+
+function getGraphLinks(graph) {
+    const links = graph?.links;
+    if (!links) return [];
+    return links instanceof Map ? [...links.values()] : Object.values(links);
+}
+
+function getOutputLinkIds(output) {
+    if (!output?.links) return [];
+    if (Array.isArray(output.links)) return [...output.links];
+
+    try {
+        return [...output.links];
+    } catch {
+        return [];
+    }
+}
+
+function reindexGraphLinksAfterOutputRemoval(node, removedIndex) {
+    for (const link of getGraphLinks(node.graph)) {
+        if (!link) continue;
+
+        const originId   = link.origin_id ?? link.originId;
+        const originSlot = link.origin_slot ?? link.originSlot;
+
+        if (
+            String(originId) === String(node.id) &&
+            Number.isInteger(originSlot) &&
+            originSlot > removedIndex
+        ) {
+            if ("origin_slot" in link) link.origin_slot = originSlot - 1;
+            if ("originSlot" in link) link.originSlot = originSlot - 1;
+        }
+    }
+}
+
+function safeRemoveOutput(node, index) {
+    const output = node.outputs?.[index];
+    if (!output) return true;
+
+    const linkIds = getOutputLinkIds(output);
+
+    // Podczas onConfigure graf może jeszcze nie mieć odtworzonej tablicy links.
+    // W takim przypadku nie usuwamy wyjścia i próbujemy ponownie w następnej klatce.
+    if (linkIds.length && !node.graph?.links) return false;
+
+    // Usuń z output.links identyfikatory, których nie ma już w graph.links.
+    // To właśnie takie osierocone ID powodowało błąd:
+    // TypeError: can't access property "link", e is undefined.
+    const validLinkIds = linkIds.filter(
+        linkId => getGraphLink(node.graph, linkId) != null
+    );
+    output.links = validLinkIds.length ? validLinkIds : null;
+
+    try {
+        node.removeOutput(index);
+        return true;
+    } catch (error) {
+        console.warn(
+            `[MultiImageLoader] Nie udało się bezpiecznie usunąć wyjścia ${index}:`,
+            error
+        );
+
+        // Nie wykonuj ręcznego splice, jeśli istnieją prawdziwe połączenia.
+        const liveLinks = getOutputLinkIds(output).filter(
+            linkId => getGraphLink(node.graph, linkId) != null
+        );
+        if (liveLinks.length) return false;
+
+        // Awaryjne usunięcie pustego slotu dla wersji frontendu, w której
+        // removeOutput() mimo braku linków nadal zgłasza wyjątek.
+        node.outputs.splice(index, 1);
+        reindexGraphLinksAfterOutputRemoval(node, index);
+        node.setDirtyCanvas(true, true);
+        return true;
+    }
+}
+
 // ─── sync outputs and widget visibility ──────────────────────────────────────
 
 function syncNode(node, count) {
@@ -260,13 +350,39 @@ function syncNode(node, count) {
     // remove outputs from the end down to c (iterate backwards to keep indices stable)
     const cur = node.outputs?.length ?? 0;
     if (cur > c) {
-        for (let i = cur - 1; i >= c; i--) node.removeOutput(i);
+        for (let i = cur - 1; i >= c; i--) {
+            if (!safeRemoveOutput(node, i)) {
+                scheduleNodeSync(node);
+                break;
+            }
+        }
     } else if (cur < c) {
         for (let i = cur + 1; i <= c; i++) node.addOutput(`obraz_${i}`, "IMAGE");
     }
 
     node.setSize(node.computeSize());
     node.setDirtyCanvas(true, true);
+}
+
+// onConfigure jest wywoływane w trakcie odtwarzania graph.links.
+// Synchronizacja dopiero w następnej klatce zapobiega pracy na niepełnym grafie.
+function scheduleNodeSync(node) {
+    if (node._szandor_sync_frame != null) {
+        cancelAnimationFrame(node._szandor_sync_frame);
+    }
+
+    node._szandor_sync_frame = requestAnimationFrame(() => {
+        node._szandor_sync_frame = null;
+
+        const countW = node.widgets?.find(w => w.name === "image_count");
+        if (!countW) return;
+
+        try {
+            syncNode(node, countW.value);
+        } catch (error) {
+            console.error("[MultiImageLoader] Błąd odroczonej synchronizacji:", error);
+        }
+    });
 }
 
 // ─── extension ────────────────────────────────────────────────────────────────
@@ -339,8 +455,7 @@ app.registerExtension({
             // – for fresh nodes: rAF fires, no onConfigure was called, sync runs normally
             requestAnimationFrame(() => {
                 if (node._szandor_synced) return;
-                const cw = node.widgets?.find(w => w.name === "image_count");
-                if (cw) syncNode(node, cw.value);
+                scheduleNodeSync(node);
             });
         };
 
@@ -351,9 +466,9 @@ app.registerExtension({
             const node = this;
             node._szandor_synced = true;   // prevent rAF double-sync
 
-            // Sync outputs to saved image_count (widgets already restored at this point)
-            const countW = node.widgets?.find(w => w.name === "image_count");
-            if (countW) syncNode(node, countW.value);
+            // Nie synchronizuj wyjść synchronicznie podczas onConfigure.
+            // LiteGraph nadal odtwarza wtedy połączenia workflow.
+            scheduleNodeSync(node);
 
             // Load thumbnails asynchronously
             for (let i = 1; i <= MAX_IMAGES; i++) {
