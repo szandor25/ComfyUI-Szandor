@@ -6,6 +6,10 @@ const ROW_HEIGHT = 52;
 const HEADER_HEIGHT = 30;
 const BUTTON_HEIGHT = 38;
 const MIN_WIDTH = 520;
+const STRENGTH_MIN = 0;
+const STRENGTH_MAX = 2;
+const STRENGTH_STEP = 0.05;
+const SLIDER_WIDTH = 126;
 const thumbCache = new Map();
 let loraListPromise = null;
 let previewElement = null;
@@ -90,9 +94,20 @@ function placePreview(event, image) {
     preview.style.top = `${Math.min(event.clientY + margin, window.innerHeight - height - margin)}px`;
 }
 
-function chooseLora(currentName = "", excludedNames = []) {
+function compareLoraNames(left, right) {
+    return left.localeCompare(right, "pl", { sensitivity: "base", numeric: true });
+}
+
+function strengthFromSlider(x, sliderX) {
+    const ratio = Math.max(0, Math.min(1, (x - sliderX) / SLIDER_WIDTH));
+    const raw = STRENGTH_MIN + ratio * (STRENGTH_MAX - STRENGTH_MIN);
+    return Math.round(raw / STRENGTH_STEP) * STRENGTH_STEP;
+}
+
+function chooseLora(currentName = "", excludedNames = [], multiple = false) {
     return loadLoraList().then(loras => new Promise(resolve => {
         const excluded = new Set(excludedNames.filter(name => name !== currentName));
+        const selectedNames = new Set();
         const backdrop = document.createElement("div");
         Object.assign(backdrop.style, {
             position: "fixed",
@@ -136,6 +151,19 @@ function chooseLora(currentName = "", excludedNames = []) {
             maxHeight: "55vh",
         });
 
+        const confirmButton = document.createElement("button");
+        confirmButton.type = "button";
+        Object.assign(confirmButton.style, {
+            display: multiple ? "block" : "none",
+            padding: "10px 14px",
+            color: "#eee",
+            background: "#69558f",
+            border: "1px solid #9c84cb",
+            borderRadius: "6px",
+            cursor: "pointer",
+            fontWeight: "bold",
+        });
+
         const finish = value => {
             backdrop.remove();
             resolve(value);
@@ -143,7 +171,25 @@ function chooseLora(currentName = "", excludedNames = []) {
 
         let matches = [];
         let optionElements = [];
+        let checkboxElements = [];
         let activeIndex = -1;
+
+        const selectedInNameOrder = () => [...selectedNames].sort(compareLoraNames);
+
+        const updateConfirmButton = () => {
+            const count = selectedNames.size;
+            confirmButton.textContent = `Dodaj zaznaczone (${count})`;
+            confirmButton.disabled = count === 0;
+            confirmButton.style.opacity = count ? "1" : ".5";
+            confirmButton.style.cursor = count ? "pointer" : "default";
+        };
+
+        const updateCheckboxes = () => {
+            checkboxElements.forEach(({ name, checkbox }) => {
+                checkbox.checked = selectedNames.has(name);
+            });
+            updateConfirmButton();
+        };
 
         const setActive = index => {
             if (!matches.length) {
@@ -163,15 +209,21 @@ function chooseLora(currentName = "", excludedNames = []) {
             const query = input.value.trim().toLowerCase();
             matches = loras
                 .filter(name => !excluded.has(name) && name.toLowerCase().includes(query))
+                .sort(compareLoraNames)
                 .slice(0, 300);
             optionElements = [];
+            checkboxElements = [];
             list.replaceChildren();
             matches.forEach((name, index) => {
-                const option = document.createElement("button");
-                option.type = "button";
-                option.textContent = name;
+                const option = document.createElement(multiple ? "label" : "button");
+                if (!multiple) {
+                    option.type = "button";
+                    option.textContent = name;
+                }
                 Object.assign(option.style, {
-                    display: "block",
+                    display: multiple ? "flex" : "block",
+                    alignItems: "center",
+                    gap: "9px",
                     width: "100%",
                     padding: "8px 10px",
                     color: name === currentName ? "#c7b7ff" : "#ddd",
@@ -180,9 +232,26 @@ function chooseLora(currentName = "", excludedNames = []) {
                     border: "0",
                     borderBottom: "1px solid #333",
                     cursor: "pointer",
+                    boxSizing: "border-box",
                 });
                 option.onmouseenter = () => setActive(index);
-                option.onclick = () => finish(name);
+                if (multiple) {
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox";
+                    checkbox.checked = selectedNames.has(name);
+                    checkbox.style.accentColor = "#9c84cb";
+                    checkbox.onchange = () => {
+                        if (checkbox.checked) selectedNames.add(name);
+                        else selectedNames.delete(name);
+                        updateConfirmButton();
+                    };
+                    const label = document.createElement("span");
+                    label.textContent = name;
+                    option.append(checkbox, label);
+                    checkboxElements.push({ name, checkbox });
+                } else {
+                    option.onclick = () => finish(name);
+                }
                 optionElements.push(option);
                 list.appendChild(option);
             });
@@ -196,6 +265,7 @@ function chooseLora(currentName = "", excludedNames = []) {
                 const currentIndex = matches.indexOf(currentName);
                 setActive(currentIndex >= 0 ? currentIndex : 0);
             }
+            updateCheckboxes();
         };
 
         input.oninput = render;
@@ -214,13 +284,23 @@ function chooseLora(currentName = "", excludedNames = []) {
             }
             if (event.key === "Enter") {
                 event.preventDefault();
-                if (activeIndex >= 0) finish(matches[activeIndex]);
+                if (multiple) {
+                    if (!selectedNames.size && activeIndex >= 0) {
+                        selectedNames.add(matches[activeIndex]);
+                    }
+                    if (selectedNames.size) finish(selectedInNameOrder());
+                } else if (activeIndex >= 0) {
+                    finish(matches[activeIndex]);
+                }
             }
+        };
+        confirmButton.onclick = () => {
+            if (selectedNames.size) finish(selectedInNameOrder());
         };
         backdrop.onpointerdown = event => {
             if (event.target === backdrop) finish(null);
         };
-        panel.append(input, list);
+        panel.append(input, list, confirmButton);
         backdrop.appendChild(panel);
         document.body.appendChild(backdrop);
         render();
@@ -245,7 +325,10 @@ function safeRows(value) {
             .map(row => ({
                 name: row.name,
                 enabled: row.enabled !== false,
-                strength: Math.max(-4, Math.min(4, Number(row.strength) || 0)),
+                strength: Math.max(
+                    STRENGTH_MIN,
+                    Math.min(STRENGTH_MAX, Number(row.strength) || 0),
+                ),
             }));
     } catch {
         return [];
@@ -339,7 +422,6 @@ function makeStackWidget(node, initialValue) {
                 const middle = top + ROW_HEIGHT / 2;
                 const thumbX = width - 214;
                 const sliderX = width - 164;
-                const sliderWidth = 126;
 
                 ctx.fillStyle = row.enabled ? "#303030" : "#252525";
                 ctx.strokeStyle = row.enabled ? "#777" : "#444";
@@ -382,10 +464,10 @@ function makeStackWidget(node, initialValue) {
                 ctx.lineWidth = 3;
                 ctx.beginPath();
                 ctx.moveTo(sliderX, middle + 7);
-                ctx.lineTo(sliderX + sliderWidth, middle + 7);
+                ctx.lineTo(sliderX + SLIDER_WIDTH, middle + 7);
                 ctx.stroke();
-                const normalized = (row.strength + 4) / 8;
-                const knobX = sliderX + normalized * sliderWidth;
+                const normalized = (row.strength - STRENGTH_MIN) / (STRENGTH_MAX - STRENGTH_MIN);
+                const knobX = sliderX + normalized * SLIDER_WIDTH;
                 ctx.fillStyle = "#ad9bdf";
                 ctx.beginPath();
                 ctx.arc(knobX, middle + 7, 6, 0, Math.PI * 2);
@@ -393,7 +475,7 @@ function makeStackWidget(node, initialValue) {
                 ctx.fillStyle = row.enabled ? "#ddd" : "#777";
                 ctx.font = "11px monospace";
                 ctx.textAlign = "center";
-                ctx.fillText(row.strength.toFixed(2), sliderX + sliderWidth / 2, middle - 8);
+                ctx.fillText(row.strength.toFixed(2), sliderX + SLIDER_WIDTH / 2, middle - 8);
 
                 ctx.fillStyle = "#a55";
                 ctx.font = "bold 16px sans-serif";
@@ -432,8 +514,7 @@ function makeStackWidget(node, initialValue) {
 
                 if (this._dragging >= 0) {
                     const sliderX = node.size[0] - 164;
-                    const strength = Math.max(-4, Math.min(4, ((x - sliderX) / 126) * 8 - 4));
-                    this.rows[this._dragging].strength = Math.round(strength * 20) / 20;
+                    this.rows[this._dragging].strength = strengthFromSlider(x, sliderX);
                     this.sync();
                     return true;
                 }
@@ -451,11 +532,7 @@ function makeStackWidget(node, initialValue) {
                 x >= node.size[0] - 274 &&
                 x <= node.size[0] - 216
             ) {
-                this.rows.sort((left, right) => left.name.localeCompare(
-                    right.name,
-                    "pl",
-                    { sensitivity: "base", numeric: true },
-                ));
+                this.rows.sort((left, right) => compareLoraNames(left.name, right.name));
                 this.sync();
                 return true;
             }
@@ -483,8 +560,7 @@ function makeStackWidget(node, initialValue) {
                 }
                 if (x >= node.size[0] - 170 && x <= node.size[0] - 32) {
                     this._dragging = rowIndex;
-                    const strength = Math.max(-4, Math.min(4, ((x - (node.size[0] - 164)) / 126) * 8 - 4));
-                    row.strength = Math.round(strength * 20) / 20;
+                    row.strength = strengthFromSlider(x, node.size[0] - 164);
                     this.sync();
                     return true;
                 }
@@ -510,11 +586,17 @@ function makeStackWidget(node, initialValue) {
                 const selected = await chooseLora(
                     "",
                     this.rows.map(item => item.name),
+                    true,
                 );
-                if (selected && !this.rows.some(item => item.name === selected)) {
-                    const row = { name: selected, enabled: true, strength: 1.0, thumbnail: null };
-                    this.rows.push(row);
-                    this.prepareThumbnail(row);
+                if (Array.isArray(selected) && selected.length) {
+                    const existingNames = new Set(this.rows.map(item => item.name));
+                    for (const name of selected) {
+                        if (existingNames.has(name)) continue;
+                        const row = { name, enabled: true, strength: 1.0, thumbnail: null };
+                        this.rows.push(row);
+                        existingNames.add(name);
+                        this.prepareThumbnail(row);
+                    }
                     this.sync();
                 }
                 return true;

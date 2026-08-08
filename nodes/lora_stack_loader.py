@@ -112,7 +112,7 @@ class SzandorLoraStackLoader:
             except (TypeError, ValueError) as error:
                 raise ValueError(f"Nieprawidłowa siła LoRA: {name}") from error
 
-            strength = max(-4.0, min(4.0, strength))
+            strength = max(0.0, min(2.0, strength))
             if strength == 0.0:
                 continue
 
