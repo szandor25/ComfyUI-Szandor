@@ -9,6 +9,140 @@ const INFO_ROW_H = 34;
 const DEFAULT_PREVIEW_H = 220;
 const PAD = 8;
 const POLL_MS = 5000;
+const HISTORY_KEY = "szandor.dirImageLoader.recentDirs";
+const HISTORY_MAX = 10;
+
+// ─── historia ostatnio wybieranych katalogów (localStorage, wspólna dla node'a) ─
+
+function loadHistory() {
+    try {
+        const arr = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+        return Array.isArray(arr) ? arr.filter(x => typeof x === "string" && x) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveHistory(list) {
+    try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, HISTORY_MAX)));
+    } catch {
+        // localStorage niedostępny (np. tryb prywatny) — po prostu bez historii
+    }
+}
+
+function pushHistory(directory) {
+    const normalized = (directory || "").trim();
+    if (!normalized) return;
+    const list = loadHistory().filter(x => x.toLowerCase() !== normalized.toLowerCase());
+    list.unshift(normalized);
+    saveHistory(list);
+}
+
+function removeFromHistory(directory) {
+    saveHistory(loadHistory().filter(x => x.toLowerCase() !== directory.toLowerCase()));
+}
+
+// ─── konwersja współrzędnych grafu → ekranu (dla pozycjonowania dropdownu) ─────
+
+function graphToClient(gx, gy) {
+    const rect = app.canvasEl.getBoundingClientRect();
+    const scale = app.canvas.ds.scale ?? 1;
+    const offset = app.canvas.ds.offset ?? [0, 0];
+    return [rect.left + (gx + offset[0]) * scale, rect.top + (gy + offset[1]) * scale];
+}
+
+let historyDropdownEl = null;
+let historyDropdownCloseHandler = null;
+
+function closeHistoryDropdown() {
+    historyDropdownEl?.remove();
+    historyDropdownEl = null;
+    if (historyDropdownCloseHandler) {
+        document.removeEventListener("pointerdown", historyDropdownCloseHandler, true);
+        historyDropdownCloseHandler = null;
+    }
+}
+
+function showHistoryDropdown(node, widget, onChange, clientX, clientY) {
+    closeHistoryDropdown();
+    const history = loadHistory();
+
+    const panel = document.createElement("div");
+    Object.assign(panel.style, {
+        position: "fixed",
+        zIndex: "100000",
+        left: `${clientX}px`,
+        top: `${clientY}px`,
+        minWidth: "260px",
+        maxWidth: "480px",
+        maxHeight: "260px",
+        overflowY: "auto",
+        background: "#242424",
+        border: "1px solid #666",
+        borderRadius: "6px",
+        boxShadow: "0 12px 36px rgba(0,0,0,.6)",
+        padding: "4px",
+    });
+
+    if (!history.length) {
+        const empty = document.createElement("div");
+        empty.textContent = "Brak historii katalogów";
+        empty.style.cssText = "padding:10px 14px;color:#888;font-size:12px;text-align:center;font-family:sans-serif";
+        panel.appendChild(empty);
+    } else {
+        for (const dir of history) {
+            const row = document.createElement("div");
+            Object.assign(row.style, {
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 8px",
+                cursor: "pointer",
+                borderRadius: "4px",
+                fontSize: "12px",
+                color: "#ddd",
+                fontFamily: "monospace",
+            });
+            row.onmouseenter = () => { row.style.background = "#3a3550"; };
+            row.onmouseleave = () => { row.style.background = "transparent"; };
+
+            const label = document.createElement("span");
+            label.textContent = dir;
+            Object.assign(label.style, {
+                flex: "1",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+            });
+            label.onclick = () => {
+                onChange(dir);
+                node.setDirtyCanvas(true, true);
+                closeHistoryDropdown();
+            };
+
+            const removeBtn = document.createElement("span");
+            removeBtn.textContent = "✕";
+            Object.assign(removeBtn.style, { color: "#a55", cursor: "pointer", padding: "0 4px" });
+            removeBtn.onclick = event => {
+                event.stopPropagation();
+                removeFromHistory(dir);
+                showHistoryDropdown(node, widget, onChange, clientX, clientY);
+            };
+
+            row.append(label, removeBtn);
+            panel.appendChild(row);
+        }
+    }
+
+    document.body.appendChild(panel);
+    historyDropdownEl = panel;
+
+    historyDropdownCloseHandler = event => {
+        if (!panel.contains(event.target)) closeHistoryDropdown();
+    };
+    setTimeout(() => document.addEventListener("pointerdown", historyDropdownCloseHandler, true), 0);
+}
 
 // ─── thumbnail cache ──────────────────────────────────────────────────────────
 
@@ -46,10 +180,13 @@ async function listImages(directory) {
 // ─── directory widget (w pełni własny, stała wysokość) ────────────────────────
 
 function makeDirectoryWidget(node, initialValue, onChange) {
+    const HIST_BTN_W = 22;
+
     const widget = {
         type: "SZANDOR_DIR_ROW",
         name: "directory",
         value: initialValue || "",
+        _historyRect: null,
 
         computeSize(width) {
             return [width, DIR_ROW_H];
@@ -73,25 +210,54 @@ function makeDirectoryWidget(node, initialValue, onChange) {
             ctx.textAlign = "left";
             ctx.fillText("katalog:", PAD + 8, top + height / 2);
 
+            // przycisk historii (lokalne współrzędne, bez "top" — patrz mouse())
+            const histBtnX = width - PAD - 4 - HIST_BTN_W;
+            const histBtnYLocal = 4;
+            const histBtnH = height - 8;
+            this._historyRect = { x: histBtnX, y: histBtnYLocal, w: HIST_BTN_W, h: histBtnH };
+            ctx.fillStyle = "#333";
+            ctx.beginPath();
+            ctx.roundRect(histBtnX, top + histBtnYLocal, HIST_BTN_W, histBtnH, 4);
+            ctx.fill();
+            ctx.fillStyle = "#aaa";
+            ctx.font = "11px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("🕘", histBtnX + HIST_BTN_W / 2, top + height / 2);
+
             ctx.fillStyle = this.value ? "#ddd" : "#666";
             ctx.font = "11px monospace";
             const label = this.value || "(kliknij, aby wskazać katalog)";
-            const maxTextWidth = width - PAD * 2 - 66;
+            const maxTextWidth = width - PAD * 2 - 66 - HIST_BTN_W;
             let shown = label;
             while (shown.length > 1 && ctx.measureText(shown).width > maxTextWidth) {
                 shown = shown.slice(1);
             }
             if (shown !== label) shown = "…" + shown;
             ctx.textAlign = "right";
-            ctx.fillText(shown, width - PAD - 8, top + height / 2);
+            ctx.fillText(shown, histBtnX - 8, top + height / 2);
         },
 
-        mouse(event) {
+        commit(value) {
+            this.value = (value ?? "").trim();
+            if (this.value) pushHistory(this.value);
+            onChange(this.value);
+        },
+
+        mouse(event, pos, node) {
             if (event.type !== "pointerdown") return false;
-            app.canvas.prompt("Katalog z obrazami", this.value || "", (value) => {
-                this.value = (value ?? "").trim();
-                onChange(this.value);
-            }, event);
+            const x = pos[0];
+            const y = pos[1] - (this.last_y ?? 0);
+            const r = this._historyRect;
+
+            if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+                const graphX = node.pos[0] + r.x;
+                const graphY = node.pos[1] + (this.last_y ?? 0) + r.y + r.h + 2;
+                const [clientX, clientY] = graphToClient(graphX, graphY);
+                showHistoryDropdown(node, this, value => this.commit(value), clientX, clientY);
+                return true;
+            }
+
+            app.canvas.prompt("Katalog z obrazami", this.value || "", value => this.commit(value), event);
             return true;
         },
 
