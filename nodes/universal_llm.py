@@ -1,5 +1,6 @@
 ﻿import os
 import json
+import time
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -31,8 +32,10 @@ def get_instruction_files():
         files.extend(txt_files)
     return files
 
-def _requires_max_completion_tokens(model_id: str) -> bool:
-    """Nowsze modele OpenAI (GPT-5, seria 'o') odrzucają 'max_tokens' i wymagają 'max_completion_tokens'."""
+def _is_openai_reasoning_family(model_id: str) -> bool:
+    """Modele OpenAI GPT-5 / serii 'o' (o1, o3, o4) mają inne API niż starsze GPT-4*:
+    - odrzucają 'max_tokens' (wymagają 'max_completion_tokens'),
+    - odrzucają niestandardową 'temperature' (obsługują tylko domyślną wartość 1)."""
     return model_id.startswith(("gpt-5", "o1", "o3", "o4"))
 
 def get_model_list():
@@ -111,25 +114,66 @@ class UniversalLLMNode:
                     {"role": "system", "content": final_system},
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": temperature,
             }
 
+            is_openai_reasoning = provider_name == "OpenAI" and _is_openai_reasoning_family(real_model_id)
+
             # Modele OpenAI z rodziny GPT-5 / "o" (o1, o3, o4) używają innej nazwy
-            # parametru limitu tokenów niż pozostali dostawcy (Grok, Qwen, DeepSeek, Gemini).
-            if provider_name == "OpenAI" and _requires_max_completion_tokens(real_model_id):
+            # parametru limitu tokenów i akceptują tylko domyślną temperature (1) —
+            # pozostali dostawcy (Grok, Qwen, DeepSeek, Gemini) i GPT-4* działają jak dotychczas.
+            if is_openai_reasoning:
                 payload["max_completion_tokens"] = max_tokens
             else:
                 payload["max_tokens"] = max_tokens
+                payload["temperature"] = temperature
 
             # Gemini nie obsługuje parametru seed przez OpenAI-compatible endpoint
             if provider_name != "Google (Gemini)":
                 payload["seed"] = seed % 1000000
 
-            if thinking_budget > 0:
+            # "thinking_budget" to niestandardowy parametr obsługiwany przez niektórych
+            # dostawców (np. Qwen, Grok) w trybie "thinking" — OpenAI (w tym GPT-5) go
+            # nie zna i odrzuca zapytanie z błędem 400, więc pomijamy go dla tego dostawcy.
+            if thinking_budget > 0 and provider_name != "OpenAI":
                 payload["extra_body"] = {"thinking_budget": thinking_budget}
 
+            start_time = time.time()
             completion = client.chat.completions.create(**payload)
-            return (completion.choices[0].message.content,)
+            elapsed = time.time() - start_time
+
+            choice = completion.choices[0]
+            content = choice.message.content or ""
+            finish_reason = getattr(choice, "finish_reason", None)
+
+            usage = getattr(completion, "usage", None)
+            usage_info = "brak danych o zużyciu tokenów"
+            if usage:
+                details = getattr(usage, "completion_tokens_details", None)
+                reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
+                reasoning_part = f", w tym reasoning={reasoning_tokens}" if reasoning_tokens else ""
+                usage_info = (
+                    f"prompt={usage.prompt_tokens} completion={usage.completion_tokens}"
+                    f"{reasoning_part} total={usage.total_tokens} tokenów"
+                )
+
+            print(
+                f"[UniversalLLM] {provider_name}: {friendly_name} | {usage_info} | "
+                f"finish_reason={finish_reason} | {elapsed:.2f}s"
+            )
+
+            # Modele "rozumujące" (GPT-5 / seria "o") zużywają część max_completion_tokens
+            # na wewnętrzne, niewidoczne rozumowanie. Gdy limit się wyczerpie zanim model
+            # wygeneruje właściwą treść, content wraca puste mimo poprawnej odpowiedzi API.
+            if not content and finish_reason == "length":
+                warning = (
+                    f"[UniversalLLM] Pusta odpowiedź: model {friendly_name} wyczerpał limit tokenów "
+                    f"({max_tokens}) zanim wygenerował treść — prawdopodobnie zużył go na wewnętrzne "
+                    f"rozumowanie. Zwiększ wartość 'max_tokens' w nodzie i spróbuj ponownie."
+                )
+                print(warning)
+                content = warning
+
+            return (content,)
 
         except Exception as e:
             return (f"BĹ‚Ä…d API {provider_name}: {str(e)}",)
