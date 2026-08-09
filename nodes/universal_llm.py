@@ -31,6 +31,10 @@ def get_instruction_files():
         files.extend(txt_files)
     return files
 
+def _requires_max_completion_tokens(model_id: str) -> bool:
+    """Nowsze modele OpenAI (GPT-5, seria 'o') odrzucają 'max_tokens' i wymagają 'max_completion_tokens'."""
+    return model_id.startswith(("gpt-5", "o1", "o3", "o4"))
+
 def get_model_list():
     config = load_llm_config()
     model_display_names = []
@@ -108,8 +112,14 @@ class UniversalLLMNode:
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": temperature,
-                "max_tokens": max_tokens,
             }
+
+            # Modele OpenAI z rodziny GPT-5 / "o" (o1, o3, o4) używają innej nazwy
+            # parametru limitu tokenów niż pozostali dostawcy (Grok, Qwen, DeepSeek, Gemini).
+            if provider_name == "OpenAI" and _requires_max_completion_tokens(real_model_id):
+                payload["max_completion_tokens"] = max_tokens
+            else:
+                payload["max_tokens"] = max_tokens
 
             # Gemini nie obsługuje parametru seed przez OpenAI-compatible endpoint
             if provider_name != "Google (Gemini)":
