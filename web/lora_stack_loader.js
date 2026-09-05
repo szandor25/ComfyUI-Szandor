@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const NODE_TYPE = "SzandorLoraStackLoader";
-const ROW_HEIGHT = 52;
+const ROW_HEIGHT = 82;
 const HEADER_HEIGHT = 30;
 const BUTTON_HEIGHT = 38;
 const MIN_WIDTH = 520;
@@ -13,6 +13,139 @@ const SLIDER_WIDTH = 126;
 const thumbCache = new Map();
 let loraListPromise = null;
 let previewElement = null;
+
+async function loadTriggers(name) {
+    const response = await api.fetchApi(`/szandor/lora-triggers?name=${encodeURIComponent(name)}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+}
+
+async function copyTrigger(text) {
+    if (!text) return false;
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        // Clipboard API is often unavailable when ComfyUI is opened over LAN HTTP.
+        const input = document.createElement("textarea");
+        input.value = text;
+        input.style.cssText = "position:fixed;left:0;top:0;opacity:0";
+        document.body.appendChild(input);
+        input.select();
+        let copied = false;
+        try { copied = document.execCommand("copy"); } catch { /* Manual copy below. */ }
+        input.remove();
+        if (!copied) window.prompt("Skopiuj trigger (Ctrl+C):", text);
+        return copied;
+    }
+}
+
+function editTrigger(row, onSave) {
+    hidePreview();
+    const backdrop = document.createElement("div");
+    backdrop.style.cssText = "position:fixed;inset:0;z-index:100001;background:#0009;display:grid;place-items:center";
+    const panel = document.createElement("div");
+    panel.style.cssText = "width:min(600px,88vw);max-height:85vh;overflow:auto;padding:20px;background:#242424;color:#eee;border:1px solid #777;border-radius:10px;display:flex;flex-direction:column;gap:12px";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-label", "Edytuj trigger LoRA");
+    const title = document.createElement("strong");
+    title.textContent = row.name;
+    title.style.overflowWrap = "anywhere";
+    const input = document.createElement("textarea");
+    input.value = row.trigger ?? "";
+    input.placeholder = "Wpisz trigger lub frazy wymagane przez autora LoRA";
+    input.setAttribute("aria-label", "Trigger");
+    input.rows = 4;
+    input.style.cssText = "padding:10px;background:#171717;color:#eee;resize:vertical";
+    const status = document.createElement("div");
+    status.textContent = "Tekst zostanie zapisany w tym workflow. Checkbox „Do promptu” dołącza go do wyjścia tekstowego.";
+    const suggestions = document.createElement("div");
+    suggestions.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;max-height:220px;overflow:auto;flex-shrink:0";
+    const suggestionStatus = document.createElement("div");
+    suggestionStatus.textContent = "Odczytywanie podpowiedzi z treningu…";
+    const showSuggestions = data => {
+        suggestions.replaceChildren();
+        const candidates = data.suggestions ?? [];
+        suggestionStatus.textContent = candidates.length
+            ? "Słowa z treningu — kliknij, aby dodać wybrane do pola powyżej. Nie każde słowo jest triggerem."
+            : "W pliku nie znaleziono podpowiedzi z treningu.";
+        for (const candidate of candidates) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = candidate.source === "class_tokens"
+                ? `${candidate.text} · class token`
+                : `${candidate.text} · ${candidate.count}`;
+            button.title = candidate.source === "class_tokens"
+                ? "Fraza zapisana w konfiguracji zbioru treningowego"
+                : "Słowo z opisów treningowych; liczba oznacza zapisaną częstotliwość";
+            button.style.cssText = "padding:6px 9px;cursor:pointer;color:#eee;background:#39334b;border:1px solid #75689b;border-radius:5px;max-width:100%;overflow-wrap:anywhere";
+            button.onclick = () => {
+                const current = input.value.trim();
+                if (current !== candidate.text && !current.split(/\s*,\s*/).includes(candidate.text)) {
+                    input.value = current ? `${current}, ${candidate.text}` : candidate.text;
+                }
+                input.focus();
+            };
+            suggestions.appendChild(button);
+        }
+    };
+    let readVersion = 0;
+    const readMetadata = async (replaceText = false) => {
+        const version = ++readVersion;
+        const originalText = input.value;
+        try {
+            const data = await loadTriggers(row.name);
+            if (version !== readVersion) return;
+            showSuggestions(data);
+            // Preserve edits made while the file was being read.
+            if (replaceText && input.value === originalText) {
+                input.value = data.trigger || "";
+                status.textContent = data.source ? `Źródło: ${data.source}` : "Brak zapisanego triggera. Wybierz podpowiedź lub wpisz tekst ręcznie.";
+            }
+        } catch {
+            if (version !== readVersion) return;
+            suggestionStatus.textContent = "Nie udało się odczytać metadanych. Możesz wpisać trigger ręcznie.";
+        }
+    };
+    const buttons = document.createElement("div");
+    buttons.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
+    const close = () => backdrop.remove();
+    for (const [label, action] of [
+        ["Odczytaj z pliku", () => readMetadata(true)],
+        ["Kopiuj", () => copyTrigger(input.value)],
+        ["Zapisz", () => { onSave(input.value.trim()); close(); }],
+        ["Anuluj", close],
+    ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.onclick = action;
+        button.style.cssText = "padding:8px 12px;cursor:pointer";
+        buttons.appendChild(button);
+    }
+    backdrop.onpointerdown = event => { if (event.target === backdrop) close(); };
+    panel.onkeydown = event => {
+        event.stopPropagation();
+        if (event.key === "Escape") close();
+        if (event.key === "Tab") {
+            const controls = [...panel.querySelectorAll("textarea,button")];
+            const index = controls.indexOf(document.activeElement);
+            if (event.shiftKey && index === 0) {
+                event.preventDefault();
+                controls.at(-1).focus();
+            } else if (!event.shiftKey && index === controls.length - 1) {
+                event.preventDefault();
+                controls[0].focus();
+            }
+        }
+    };
+    panel.append(title, input, status, suggestionStatus, suggestions, buttons);
+    backdrop.appendChild(panel);
+    document.body.appendChild(backdrop);
+    input.focus();
+    readMetadata();
+}
 
 function loadLoraList() {
     if (!loraListPromise) {
@@ -325,6 +458,8 @@ function safeRows(value) {
             .map(row => ({
                 name: row.name,
                 enabled: row.enabled !== false,
+                trigger: typeof row.trigger === "string" ? row.trigger : null,
+                use_trigger: row.use_trigger === true,
                 strength: Math.max(
                     STRENGTH_MIN,
                     Math.min(STRENGTH_MAX, Number(row.strength) || 0),
@@ -374,11 +509,27 @@ function makeStackWidget(node, initialValue) {
         },
 
         prepareThumbnail(row) {
+            const name = row.name;
             row.thumbnail = null;
-            loadThumbnail(row.name).then(image => {
+            loadThumbnail(name).then(image => {
+                if (row.name !== name) return;
                 row.thumbnail = image;
                 node.setDirtyCanvas(true, true);
             });
+            if (row.trigger == null) {
+                loadTriggers(name).then(data => {
+                    if (row.name !== name || row.trigger != null) return;
+                    row.trigger = data.trigger || "";
+                    row.suggestionCount = data.suggestions?.length || 0;
+                    row.triggerError = false;
+                    this.sync();
+                }).catch(error => {
+                    if (row.name !== name) return;
+                    row.triggerError = true;
+                    node.setDirtyCanvas(true, true);
+                    console.warn("[Szandor LoRA Stack] Odczyt triggera:", error);
+                });
+            }
         },
 
         draw(ctx, _node, width, y) {
@@ -419,7 +570,7 @@ function makeStackWidget(node, initialValue) {
 
             this.rows.forEach((row, index) => {
                 const top = y + HEADER_HEIGHT + index * ROW_HEIGHT;
-                const middle = top + ROW_HEIGHT / 2;
+                const middle = top + 26;
                 const thumbX = width - 214;
                 const sliderX = width - 164;
 
@@ -480,6 +631,31 @@ function makeStackWidget(node, initialValue) {
                 ctx.fillStyle = "#a55";
                 ctx.font = "bold 16px sans-serif";
                 ctx.fillText("x", width - 21, middle);
+
+                const triggerY = top + 62;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = row.use_trigger ? "#b39bea" : "#777";
+                ctx.strokeRect(16, triggerY - 7, 14, 14);
+                if (row.use_trigger) {
+                    ctx.fillStyle = row.enabled && row.strength > 0 ? "#b39bea" : "#666";
+                    ctx.fillRect(19, triggerY - 4, 8, 8);
+                }
+                ctx.textAlign = "left";
+                ctx.font = "11px sans-serif";
+                ctx.fillStyle = "#bbb";
+                ctx.fillText("Do promptu", 37, triggerY);
+                ctx.fillStyle = row.trigger ? "#cbbcff" : "#888";
+                const triggerLabel = row.trigger || (row.triggerError
+                    ? "Błąd odczytu — kliknij Edytuj"
+                    : row.trigger == null ? "Odczytywanie…"
+                    : row.suggestionCount ? `Podpowiedzi: ${row.suggestionCount} — kliknij Edytuj`
+                    : "Brak triggera — kliknij Edytuj");
+                ctx.fillText(shorten(ctx, triggerLabel.replace(/\s+/g, " "), width - 262), 112, triggerY);
+                ctx.textAlign = "center";
+                ctx.fillStyle = row.trigger ? "#cbbcff" : "#666";
+                ctx.fillText(row._copied ? "OK!" : "Kopiuj", width - 104, triggerY);
+                ctx.fillStyle = "#cbbcff";
+                ctx.fillText("Edytuj", width - 45, triggerY);
             });
 
             const buttonY = y + HEADER_HEIGHT + this.rows.length * ROW_HEIGHT + 5;
@@ -547,6 +723,24 @@ function makeStackWidget(node, initialValue) {
             const rowIndex = Math.floor((y - HEADER_HEIGHT) / ROW_HEIGHT);
             if (rowIndex >= 0 && rowIndex < this.rows.length) {
                 const row = this.rows[rowIndex];
+                const rowY = y - HEADER_HEIGHT - rowIndex * ROW_HEIGHT;
+                if (rowY >= 48) {
+                    if (x >= 8 && x <= 105) {
+                        row.use_trigger = !row.use_trigger;
+                        this.sync();
+                    } else if (x >= node.size[0] - 134 && x < node.size[0] - 74) {
+                        row._copied = await copyTrigger(row.trigger);
+                        node.setDirtyCanvas(true, true);
+                        setTimeout(() => { row._copied = false; node.setDirtyCanvas(true, true); }, 1500);
+                    } else if (x >= 108 && x < node.size[0] - 8) {
+                        editTrigger(row, trigger => {
+                            row.trigger = trigger;
+                            row.triggerError = false;
+                            this.sync();
+                        });
+                    }
+                    return true;
+                }
                 if (x >= 8 && x <= 50) {
                     row.enabled = !row.enabled;
                     this.sync();
@@ -573,6 +767,10 @@ function makeStackWidget(node, initialValue) {
                         index !== rowIndex && item.name === selected
                     )) {
                         row.name = selected;
+                        row.trigger = null;
+                        row.triggerError = false;
+                        row.use_trigger = false;
+                        row.suggestionCount = 0;
                         this.prepareThumbnail(row);
                         this.sync();
                     }
@@ -592,7 +790,7 @@ function makeStackWidget(node, initialValue) {
                     const existingNames = new Set(this.rows.map(item => item.name));
                     for (const name of selected) {
                         if (existingNames.has(name)) continue;
-                        const row = { name, enabled: true, strength: 1.0, thumbnail: null };
+                        const row = { name, enabled: true, strength: 1.0, thumbnail: null, trigger: null, use_trigger: false };
                         this.rows.push(row);
                         existingNames.add(name);
                         this.prepareThumbnail(row);
@@ -605,7 +803,9 @@ function makeStackWidget(node, initialValue) {
         },
 
         serializeValue() {
-            return JSON.stringify(this.rows.map(({ name, enabled, strength }) => ({ name, enabled, strength })));
+            return JSON.stringify(this.rows.map(({ name, enabled, strength, trigger, use_trigger }) => ({
+                name, enabled, strength, trigger, use_trigger,
+            })));
         },
     };
 
@@ -662,6 +862,11 @@ app.registerExtension({
         const originalConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             originalConfigure?.apply(this, arguments);
+            // Saved workflows may still carry the original two output sockets.
+            for (const name of ["trigger_words", "prompt_with_triggers"]) {
+                if (!this.outputs?.some(output => output.name === name)) this.addOutput(name, "STRING");
+            }
+            if (!this.inputs?.some(input => input.name === "prompt")) this.addInput("prompt", "STRING");
             this._szandorLoraStackWidget?.setRowsFromValue();
         };
 
