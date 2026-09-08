@@ -6,6 +6,7 @@ const ROW_HEIGHT = 82;
 const HEADER_HEIGHT = 30;
 const BUTTON_HEIGHT = 38;
 const MIN_WIDTH = 520;
+const DEFAULT_ROWS_PER_COLUMN = 10;
 const STRENGTH_MIN = 0;
 const STRENGTH_MAX = 2;
 const STRENGTH_STEP = 0.05;
@@ -480,6 +481,10 @@ function shorten(ctx, text, maxWidth) {
 }
 
 function makeStackWidget(node, initialValue) {
+    node.properties ??= {};
+    const savedLimit = Number(node.properties.lora_rows_per_column);
+    node.properties.lora_rows_per_column = Number.isSafeInteger(savedLimit) && savedLimit > 0
+        ? savedLimit : DEFAULT_ROWS_PER_COLUMN;
     const widget = {
         type: "SZANDOR_LORA_STACK",
         name: "lora_stack",
@@ -488,24 +493,40 @@ function makeStackWidget(node, initialValue) {
         _dragging: -1,
         _thumbRects: [],
 
-        computeSize(width) {
-            return [Math.max(width, MIN_WIDTH), HEADER_HEIGHT + this.rows.length * ROW_HEIGHT + BUTTON_HEIGHT];
+        layout(width = node.size[0]) {
+            const value = Number(node.properties.lora_rows_per_column);
+            const limit = Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_ROWS_PER_COLUMN;
+            const columns = Math.max(1, Math.ceil(this.rows.length / limit));
+            return { limit, columns, visibleRows: Math.min(this.rows.length, limit), columnWidth: width / columns };
         },
 
-        sync() {
+        computeSize(width) {
+            const { columns, visibleRows } = this.layout();
+            return [Math.max(width || 0, MIN_WIDTH * columns), HEADER_HEIGHT + visibleRows * ROW_HEIGHT + BUTTON_HEIGHT];
+        },
+
+        sync(fit = false) {
             this.value = this.serializeValue();
+            const layout = this.layout();
+            const previous = this._layout;
+            const changed = fit || !previous || previous.columns !== layout.columns || previous.visibleRows !== layout.visibleRows;
+            const width = changed
+                ? Math.max(MIN_WIDTH, node.size[0] / (previous && !fit ? previous.columns : layout.columns)) * layout.columns
+                : Math.max(node.size[0], MIN_WIDTH * layout.columns);
             const requiredSize = node.computeSize();
             node.setSize([
-                Math.max(node.size[0], requiredSize[0]),
-                Math.max(node.size[1], requiredSize[1]),
+                width,
+                changed ? requiredSize[1] : Math.max(node.size[1], requiredSize[1]),
             ]);
+            this._layout = layout;
+            this._thumbRects = [];
             node.setDirtyCanvas(true, true);
         },
 
         setRowsFromValue() {
             this.rows = safeRows(this.value);
             for (const row of this.rows) this.prepareThumbnail(row);
-            this.sync();
+            this.sync(true);
         },
 
         prepareThumbnail(row) {
@@ -534,6 +555,7 @@ function makeStackWidget(node, initialValue) {
 
         draw(ctx, _node, width, y) {
             this._thumbRects = [];
+            const layout = this.layout(width);
             ctx.font = "12px sans-serif";
             ctx.textBaseline = "middle";
 
@@ -563,13 +585,21 @@ function makeStackWidget(node, initialValue) {
             ctx.textAlign = "center";
             ctx.fillText("A → Z", sortX + 29, y + 16);
 
-            ctx.textAlign = "center";
-            ctx.fillStyle = "#aaa";
+            ctx.fillStyle = "#292536";
+            ctx.beginPath();
+            ctx.roundRect(width - 208, y + 5, 196, 22, 5);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = "#cbbcff";
             ctx.font = "12px sans-serif";
-            ctx.fillText("Siła", width - 101, y + 16);
+            ctx.fillText(`LoRA / kol.: ${layout.limit}`, width - 110, y + 16);
 
             this.rows.forEach((row, index) => {
-                const top = y + HEADER_HEIGHT + index * ROW_HEIGHT;
+                const width = layout.columnWidth;
+                const columnX = Math.floor(index / layout.limit) * width;
+                ctx.save();
+                ctx.translate(columnX, 0);
+                const top = y + HEADER_HEIGHT + (index % layout.limit) * ROW_HEIGHT;
                 const middle = top + 26;
                 const thumbX = width - 214;
                 const sliderX = width - 164;
@@ -603,7 +633,7 @@ function makeStackWidget(node, initialValue) {
                     const imageWidth = row.thumbnail.width * scale;
                     const imageHeight = row.thumbnail.height * scale;
                     ctx.drawImage(row.thumbnail, thumbX + (38 - imageWidth) / 2, top + 8 + (36 - imageHeight) / 2, imageWidth, imageHeight);
-                    this._thumbRects.push({ index, x: thumbX, y: top - y + 8, width: 38, height: 36 });
+                    this._thumbRects.push({ index, x: columnX + thumbX, y: top - y + 8, width: 38, height: 36 });
                 } else {
                     ctx.fillStyle = "#555";
                     ctx.font = "10px sans-serif";
@@ -656,9 +686,10 @@ function makeStackWidget(node, initialValue) {
                 ctx.fillText(row._copied ? "OK!" : "Kopiuj", width - 104, triggerY);
                 ctx.fillStyle = "#cbbcff";
                 ctx.fillText("Edytuj", width - 45, triggerY);
+                ctx.restore();
             });
 
-            const buttonY = y + HEADER_HEIGHT + this.rows.length * ROW_HEIGHT + 5;
+            const buttonY = y + HEADER_HEIGHT + layout.visibleRows * ROW_HEIGHT + 5;
             ctx.fillStyle = "#202020";
             ctx.strokeStyle = "#777";
             ctx.beginPath();
@@ -675,8 +706,9 @@ function makeStackWidget(node, initialValue) {
         },
 
         async mouse(event, pos) {
-            const x = pos[0];
+            let x = pos[0];
             const y = pos[1] - (this.last_y ?? 0);
+            const layout = this.layout();
 
             if (event.type === "pointermove") {
                 const hovered = this._thumbRects.find(rect =>
@@ -689,7 +721,7 @@ function makeStackWidget(node, initialValue) {
                 }
 
                 if (this._dragging >= 0) {
-                    const sliderX = node.size[0] - 164;
+                    const sliderX = (Math.floor(this._dragging / layout.limit) + 1) * layout.columnWidth - 164;
                     this.rows[this._dragging].strength = strengthFromSlider(x, sliderX);
                     this.sync();
                     return true;
@@ -702,6 +734,19 @@ function makeStackWidget(node, initialValue) {
                 return false;
             }
             if (event.type !== "pointerdown") return false;
+            if (x < 0 || x >= node.size[0] || y < 0) return false;
+
+            if (y < HEADER_HEIGHT && x >= node.size[0] - 208 && x <= node.size[0] - 12) {
+                app.canvas.prompt("Liczba LoRA na kolumnę (dodatnia liczba całkowita)", String(layout.limit), value => {
+                    const limit = Number(value);
+                    if (!Number.isSafeInteger(limit) || limit < 1) return;
+                    node.properties.lora_rows_per_column = limit;
+                    this._dragging = -1;
+                    hidePreview();
+                    this.sync();
+                }, event);
+                return true;
+            }
 
             if (
                 y < HEADER_HEIGHT &&
@@ -720,19 +765,23 @@ function makeStackWidget(node, initialValue) {
                 return true;
             }
 
-            const rowIndex = Math.floor((y - HEADER_HEIGHT) / ROW_HEIGHT);
-            if (rowIndex >= 0 && rowIndex < this.rows.length) {
+            const column = Math.floor(x / layout.columnWidth);
+            x -= column * layout.columnWidth;
+            const width = layout.columnWidth;
+            const rowInColumn = Math.floor((y - HEADER_HEIGHT) / ROW_HEIGHT);
+            const rowIndex = column * layout.limit + rowInColumn;
+            if (rowInColumn >= 0 && rowInColumn < layout.visibleRows && rowIndex < this.rows.length) {
                 const row = this.rows[rowIndex];
-                const rowY = y - HEADER_HEIGHT - rowIndex * ROW_HEIGHT;
+                const rowY = y - HEADER_HEIGHT - rowInColumn * ROW_HEIGHT;
                 if (rowY >= 48) {
                     if (x >= 8 && x <= 105) {
                         row.use_trigger = !row.use_trigger;
                         this.sync();
-                    } else if (x >= node.size[0] - 134 && x < node.size[0] - 74) {
+                    } else if (x >= width - 134 && x < width - 74) {
                         row._copied = await copyTrigger(row.trigger);
                         node.setDirtyCanvas(true, true);
                         setTimeout(() => { row._copied = false; node.setDirtyCanvas(true, true); }, 1500);
-                    } else if (x >= 108 && x < node.size[0] - 8) {
+                    } else if (x >= 108 && x < width - 8) {
                         editTrigger(row, trigger => {
                             row.trigger = trigger;
                             row.triggerError = false;
@@ -746,19 +795,19 @@ function makeStackWidget(node, initialValue) {
                     this.sync();
                     return true;
                 }
-                if (x >= node.size[0] - 34) {
+                if (x >= width - 34) {
                     this.rows.splice(rowIndex, 1);
                     hidePreview();
                     this.sync();
                     return true;
                 }
-                if (x >= node.size[0] - 170 && x <= node.size[0] - 32) {
+                if (x >= width - 170 && x <= width - 32) {
                     this._dragging = rowIndex;
-                    row.strength = strengthFromSlider(x, node.size[0] - 164);
+                    row.strength = strengthFromSlider(x, width - 164);
                     this.sync();
                     return true;
                 }
-                if (x >= 50 && x < node.size[0] - 220) {
+                if (x >= 50 && x < width - 220) {
                     const selected = await chooseLora(
                         row.name,
                         this.rows.map(item => item.name),
@@ -779,8 +828,8 @@ function makeStackWidget(node, initialValue) {
                 return true;
             }
 
-            const buttonTop = HEADER_HEIGHT + this.rows.length * ROW_HEIGHT;
-            if (y >= buttonTop) {
+            const buttonTop = HEADER_HEIGHT + layout.visibleRows * ROW_HEIGHT;
+            if (y >= buttonTop && y < buttonTop + BUTTON_HEIGHT) {
                 const selected = await chooseLora(
                     "",
                     this.rows.map(item => item.name),
@@ -852,11 +901,7 @@ app.registerExtension({
             const stackWidget = makeStackWidget(this, oldValue);
             this.widgets.push(stackWidget);
             this._szandorLoraStackWidget = stackWidget;
-            const requiredSize = this.computeSize();
-            this.setSize([
-                Math.max(this.size[0], requiredSize[0], MIN_WIDTH),
-                Math.max(this.size[1], requiredSize[1]),
-            ]);
+            stackWidget.sync();
         };
 
         const originalConfigure = nodeType.prototype.onConfigure;
