@@ -7,16 +7,23 @@
 
 # 🇵🇱 Wersja Polska
 
-Zestaw zaawansowanych węzłów (Custom Nodes) do ComfyUI, skupiający się na integracji z modelami językowymi (LLM) oraz narzędziach do testowania modeli LoRA.
+Zestaw 16 węzłów (Custom Nodes) do ComfyUI: edycja promptów MiniMax H3, integracje LLM, generowanie obrazów przez API, obsługa LoRA, obrazów i plików tekstowych oraz eksperymentalny reżyser teledysków.
 
 ## 📦 Dostępne Węzły
 
 ### 🧠 Integracja AI / LLM
-*   **Qwen Image Gen Node**: Wykorzystuje model Qwen (via Dashscope) do zamiany krótkich polskich haseł na rozbudowane, szczegółowe prompty w języku angielskim, idealne dla generatorów obrazów.
+
+*   **MiniMax H3 — Edytor promptów (Szandor)** (`Szandor/Prompt`): Zwykłe pole tekstowe z kolorowaniem składni H3 podczas pisania: dialogi `<d>[Polish]…</d>`, mówcy `(S1)`, ujęcia `[Shot 1]`, referencje `<Subject N>`, `<Picture N>`, `<Video N>`, `<Audio N>`, znaczniki `<scenetrans>` / `<cutoff>` oraz nazwy sekcji. Przy kursorze w znaczniku dialogu wyróżnia pasującą parę; niedomknięte dialogi i brak języka wskazuje pod polem.
+    *   **Wstaw** dodaje wybrany znacznik w miejscu kursora lub obejmuje zaznaczony tekst dialogiem. Dostępne są też szkielety T2VA i Ref2VA do uzupełnienia; **Składnia** pokazuje krótką ściągę. Język, numery referencji i czasy cięć edytujesz w tekście. Standardowe zaznaczanie, wklejanie i cofanie działają jak w polu tekstowym.
+    *   **Rozmiar**: przeciągnij prawy dolny róg edytora albo zmień rozmiar noda. Pole dopasowuje się do noda, zawija długie wiersze i przewija tekst; rozmiar oraz prompt zapisują się w workflow.
+    *   **Podłączenie**: wyjście `prompt` (`STRING`) podłącz do wejścia `text` kodera tekstu używanego z H3; w razie potrzeby zamień pole kodera na wejście przez jego menu. Edytor działa lokalnie, bez klucza API; zwraca wpisany tekst bez przepisywania, tłumaczenia ani losowania `{a|b}`. Uwagi są pomocnicze i nie blokują generowania. Nieznane znaczniki pozostają w tekście.
+    *   **Źródła składni**: oficjalne poradniki MiniMax [T2VA / klatki kluczowe](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/base-en.txt) i [Ref2VA](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/ref-en.txt), sprawdzone 2026-09-09. Opisują zalecany format rozbudowanego promptu; node pozwala też swobodnie pisać zwykły tekst.
+*   **Alibaba Wan2.1/Qwen Image Gen** (`QwenImageGenNode`): Wysyła prompt do API generowania obrazów DashScope. Pozwala wybrać model, proporcje i seed; zwraca obraz oraz oryginalny prompt. Wymaga `DASHSCOPE_API_KEY`. Pole `negative_prompt` jest obecnie widoczne, ale nie jest przesyłane do API.
 *   **Universal LLM Node**: Wszechstronny węzeł obsługujący wielu dostawców (OpenAI, DeepSeek, X.AI/Grok, Alibaba Qwen). Pozwala na generowanie tekstu i chat wewnątrz ComfyUI. Konfiguracja odbywa się przez `config.json`.
-*   **Qwen Wan Resolution Node**: Węzeł pomocniczy dedykowany do pracy z modelami wideo (np. Wan2.1), zarządzający rozdzielczością i formatowaniem promptów wideo.
+*   **Qwen/Wan Resolution Selector** (`QwenWanResolutionNode`): Wybierz preset proporcji i rozdzielczości. Wyjścia `width`, `height` i `text_info` zawierają szerokość, wysokość i opis wybranego ustawienia.
 
 ### 🧪 Testowanie LoRA (LoRA Testing)
+
 *   **LoRA Stack z miniaturami (Szandor)**: Nakłada wiele LoRA kolejno na wejścia `MODEL` i `CLIP`. Każdy wiersz ma przełącznik, suwak siły i automatyczną miniaturę; najechanie na miniaturę pokazuje większy podgląd. Kliknij **LoRA / kol.** w nagłówku, aby wpisać liczbę pozycji na kolumnę (domyślnie 10). Kolejne pozycje trafiają do kolumn po prawej — np. 30 LoRA przy limicie 10 tworzy trzy kolumny. Ustawienie jest zapisywane w workflow; kolejność nakładania pozostaje od góry do dołu, następnie od lewej kolumny do prawej. Obraz podglądu należy umieścić obok LoRA pod tą samą nazwą, np. `styl.safetensors` + `styl.png` (obsługiwane są PNG, JPG, JPEG i WebP).
     *   **Triggery**: Pod nazwą pliku wyświetla się tekst triggera. „Kopiuj” kopiuje go do schowka, a „Edytuj” pozwala obejrzeć cały tekst, zmienić go lub ponownie odczytać z pliku. Tekst i checkbox są zapisywane w workflow; edycja nie zmienia pliku LoRA.
     *   **Automatyczny odczyt**: Kolejno z `styl.trigger.txt` (zwykły tekst), `styl.metadata.json` (LoRA Manager), `styl.civitai.info`, `styl.info`, `styl.json`, następnie z metadanych `styl.safetensors`. JSON obsługuje pola `trainedWords`, `triggerWords`, `trigger_words`, `activation text`, `activation_text`, `ss_trigger_words`, także wewnątrz `modelVersion` i `civitai`. Odczytywane są wyłącznie jawne triggery, bez zgadywania na podstawie tagów treningowych. Jeśli ich brak, wpisz tekst przez „Edytuj”. Nie wymaga dostępu do Internetu.
@@ -26,6 +33,10 @@ Zestaw zaawansowanych węzłów (Custom Nodes) do ComfyUI, skupiający się na i
 *   **Lora Grid Saver**: Automatycznie układa wygenerowane obrazy w siatkę (Grid) z opisami, co ułatwia wizualne porównanie wpływu różnych modeli LoRA na generowany obraz.
 
 ### 🖼️ Ładowanie Obrazów (Image Loading)
+
+*   **Load Image From Directory v2 (Szandor)** (`SzandorDirectoryImageLoader`): Wpisz ścieżkę katalogu na komputerze, na którym działa ComfyUI. Strzałkami wybierasz obraz; podgląd pokazuje nazwę i rozdzielczość. Historia katalogów jest przechowywana w przeglądarce, a wybrany katalog i plik w workflow. Przycisk odświeżania ponownie odczytuje listę plików. Wyjścia: `image` i `mask` (z przezroczystości obrazu).
+*   **Image Passthrough (Szandor)** (`ImagePassthrough`): Rozdzielacz 1–30 par gniazd `in_N` → `out_N`. Ustaw `slot_count` i podłącz obrazy do odpowiednich wejść; aktywne, podłączone obrazy przechodzą bez zmian. Niepodłączone wyjścia zwracają czarny obraz 8 × 8.
+*   **Szandor Auto Crop** (`SzandorAutoCrop`): Przycina obraz lub batch do wybranych proporcji, z pozycją `center`, `top/left` albo `bottom/right` i wymaganą podzielnością wymiarów przez 64, 32, 16 lub 8. Podłącz `image`, wybierz ustawienia i odbierz przycięty `image`. Nie skaluje obrazu; jeśli obraz jest za mały dla wybranych proporcji i podzielności, używa wymiarów mieszczących się w źródle, więc proporcje mogą się różnić.
 *   **Multi Image Loader**: Zaawansowany węzeł do wczytywania wielu obrazów jednocześnie (do 16). Funkcje:
     *   Suwak `image_count` (1–16) – kontroluje liczbę aktywnych slotów i wyjść
     *   Miniaturki – każdy załadowany obraz wyświetla podgląd bezpośrednio w nodzie
@@ -36,10 +47,12 @@ Zestaw zaawansowanych węzłów (Custom Nodes) do ComfyUI, skupiający się na i
     *   Zapis/odczyt workflow – stan (nazwy plików, liczba slotów) jest zapisywany w pliku workflow
 
 ### 🎬 Teledyski (Video) — 🚧 w budowie
+
 *   **Reżyser Teledysku (MiniMax H3)** *(roboczo, jeszcze nieukończone)*: Eksperymentalny węzeł do tworzenia teledysków. Wczytujesz utwór, rozstawiasz klatki kluczowe na oscylogramie (odstęp 5–15 s, taki jest limit modelu MiniMax H3), do każdej klatki podłączasz obraz i prompt, a węzeł generuje osobne segmenty wideo (przez płatne API MiniMax H3, rozliczane kredytami comfy.org) i skleja je w jedno finalne wideo z podłożonym audio. Ma tryb `dry_run` (walidacja + szacowany koszt bez generowania), lokalny cache segmentów (żeby nie płacić drugi raz za niezmieniony fragment) oraz opcjonalny tryb „lokalny" (`video_in_01..39`) do podłączenia gotowych klipów z własnego, lokalnego workflow zamiast płatnego API.
     *   ⚠️ **Status: praca w toku, jeszcze nieukończone.** Interfejs oscylogramu (dynamiczne gniazda, canvas) bywa niestabilny wizualnie i jest wciąż dopracowywany — zanim zaczniesz go używać na poważnie, przetestuj najpierw z `dry_run=True`.
 
 ### 🛠️ Narzędzia (Utils)
+
 *   **Batch Image Loader With Name**: Wczytywanie obrazów z folderu wraz z ich nazwami (przydatne przy img2img).
 *   **Text Directory Loader**: Wczytywanie zawartości plików tekstowych z całego katalogu.
 *   **Text File Picker (Folder)**: Wczytuje prompt z wybranego pliku `.txt` w podanym katalogu, z opcjami sortowania (nazwa/data modyfikacji, rosnąco/malejąco).
@@ -53,17 +66,35 @@ Zestaw zaawansowanych węzłów (Custom Nodes) do ComfyUI, skupiający się na i
     ```
 2.  Sklonuj repozytorium:
     ```bash
-    git clone https://github.com/TWOJA_NAZWA/ComfyUI-Szandor.git
+    git clone https://github.com/szandor25/ComfyUI-Szandor.git
     ```
 3.  Zainstaluj wymagane biblioteki:
     ```bash
     cd ComfyUI-Szandor
-    pip install -r requirements.txt
+    python -m pip install -r requirements.txt python-dotenv
     ```
+
+Użyj Pythona ze środowiska ComfyUI. `python-dotenv` jest wymagany przez istniejące integracje LLM. Zrestartuj ComfyUI i odśwież stronę przez **Ctrl+F5**, aby załadować nody oraz ich interfejsy.
+
+## 🔄 Aktualizacja i uruchomienie edytora H3
+
+W katalogu zainstalowanego zestawu wykonaj `git pull --ff-only`, następnie zrestartuj ComfyUI i odśwież stronę przez **Ctrl+F5**. W wyszukiwarce nodów wpisz **MiniMax H3 — Edytor promptów (Szandor)**; znajduje się w kategorii `Szandor/Prompt`. Połącz `prompt` z `text` kodera tekstu H3, wpisz prompt i zapisz workflow, aby zachować tekst oraz rozmiar pola. Edytor sam nie ładuje modelu ani nie generuje filmu.
+
+## 📝 Ostatnie zmiany
+
+*   **2026-09-09 — Edytor MiniMax H3**: kolorowanie składni, wskazywanie par i błędów dialogów, wstawianie znaczników i szablonów, rozciąganie pola oraz zapis rozmiaru w workflow. Dodano testy składni i test interfejsu w Chromium.
+*   **LoRA Stack — kolumny** (`9a16ac1`): konfigurowalna liczba pozycji na kolumnę, zapisywana w workflow.
+*   **LoRA Stack — triggery** (`44c90e0`): odczyt lokalnych triggerów, edycja i dołączanie do promptu oraz podpowiedzi z metadanych treningowych.
+*   **Dokumentacja**: uzupełniono brakujące opisy nodów obrazowych, poprawiono opisy Qwen oraz instrukcje instalacji i aktualizacji. Pełna historia znajduje się w [commitach repozytorium](https://github.com/szandor25/ComfyUI-Szandor/commits/main/).
+
+## 🧪 Testy
+
+Z katalogu repozytorium: `python -m unittest discover -s tests -p 'test_*.py'` oraz `node --test tests/test_h3_prompt_syntax.mjs` (Node.js z obsługą modułów ES w plikach `.js`, np. 22.7+). Test przeglądarkowy uruchom przez `CHROME_PATH=/ścieżka/do/chrome node tests/test_h3_prompt_browser.mjs`. Nie wymaga pakietów npm; używa uproszczonego hosta widgetów ComfyUI i nie wykonuje generowania H3.
 
 ## 🔑 Konfiguracja
 
 Aby korzystać z węzłów LLM, musisz skonfigurować klucze API.
+
 1.  Edytuj plik `config.json` (opcjonalnie, aby dodać własne modele).
 2.  Ustaw zmienne środowiskowe w systemie lub pliku startowym:
     *   `DASHSCOPE_API_KEY` (dla Qwen)
@@ -75,16 +106,19 @@ Aby korzystać z węzłów LLM, musisz skonfigurować klucze API.
 
 # 🇬🇧 English Version
 
-A collection of custom nodes for ComfyUI, focusing on LLM integration (Prompt Engineering) and LoRA testing workflows.
+A collection of 16 ComfyUI nodes for MiniMax H3 prompt editing, LLM integration, API image generation, LoRAs, images, text files, and an experimental music video director.
 
 ## 📦 Available Nodes
 
 ### 🧠 AI / LLM Integration
-*   **Qwen Image Gen Node**: Uses the Qwen model (via Dashscope) to transform short keywords into elaborate, detailed image prompts in English. Optimized for high-quality image generation.
+
+*   **MiniMax H3 — Prompt Editor (Szandor)** (`Szandor/Prompt`): Native text editing with live highlighting of dialogue, language and shot markers, speakers, references, boundary tags, and base/Ref2VA section names. Highlights matching dialogue tags at the caret and reports missing dialogue closures or language labels. Insert tags around a selection or add editable T2VA/Ref2VA templates; the **Składnia** button opens a syntax guide. Resize the editor using its bottom-right grip or resize the node; text and node dimensions persist in the workflow. Connect its `prompt` (`STRING`) output to your H3 text encoder's `text` input. Runs locally without API keys, preserves the prompt verbatim (including `{a|b}`), and never blocks generation on editor diagnostics. Based on MiniMax's official [base](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/base-en.txt) and [reference](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/ref-en.txt) guides, consulted 2026-09-09.
+*   **Alibaba Wan2.1/Qwen Image Gen** (`QwenImageGenNode`): Calls the DashScope image generation API with a prompt, model, aspect ratio, and seed; returns the image and original prompt. Requires `DASHSCOPE_API_KEY`. The current `negative_prompt` field is not forwarded to the API.
 *   **Universal LLM Node**: A versatile node supporting multiple providers (OpenAI, DeepSeek, X.AI/Grok, Alibaba Qwen). Allows for text generation and chat capabilities directly within ComfyUI. Configurable via `config.json`.
-*   **Qwen Wan Resolution Node**: A helper node dedicated to video models (e.g., Wan2.1), managing resolution settings and video prompt formatting.
+*   **Qwen/Wan Resolution Selector** (`QwenWanResolutionNode`): Select an aspect-ratio/resolution preset to obtain `width`, `height`, and a `text_info` description.
 
 ### 🧪 LoRA Testing Tools
+
 *   **LoRA Stack with thumbnails (Szandor)**: Applies multiple LoRAs in order to `MODEL` and `CLIP`. Each row has an enable toggle, strength slider, and an automatically matched thumbnail; hovering the thumbnail opens a larger preview. Click **LoRA / kol.** in the header to enter the number of entries per column (default: 10). Additional entries flow into columns on the right, so 30 LoRAs with a limit of 10 produce three columns. The setting is saved in the workflow; application order remains top to bottom, then left column to right column. Store the image beside the LoRA with the same stem, for example `style.safetensors` + `style.png` (PNG, JPG, JPEG, and WebP are supported).
     *   **Triggers**: Each row displays trigger text with copy and edit controls. Text and the “Do promptu” checkbox are saved in the workflow. Editing does not modify the LoRA file. The editor can also reload metadata.
     *   **Local metadata**: Reads `style.trigger.txt` (plain text), then `style.metadata.json` (LoRA Manager), `style.civitai.info`, `style.info`, `style.json`, then the safetensors header. Supported JSON fields: `trainedWords`, `triggerWords`, `trigger_words`, `activation text`, `activation_text`, `ss_trigger_words`, including nested `modelVersion` and `civitai`. Training tag frequencies are not treated as triggers. Missing triggers can be entered manually; no Internet access is required.
@@ -94,6 +128,10 @@ A collection of custom nodes for ComfyUI, focusing on LLM integration (Prompt En
 *   **Lora Grid Saver**: Automatically arranges generated images into a labeled grid, making it easy to visually compare the impact of different LoRA models.
 
 ### 🖼️ Image Loading
+
+*   **Load Image From Directory v2 (Szandor)** (`SzandorDirectoryImageLoader`): Enter a directory on the ComfyUI server and use the arrows to select an image. Shows a preview, filename, and dimensions; refresh reloads the file list. Directory history is stored in the browser, while the selected directory and file persist in the workflow. Outputs `image` and a transparency-derived `mask`.
+*   **Image Passthrough (Szandor)** (`ImagePassthrough`): Set `slot_count` to expose 1–30 matching `in_N` → `out_N` image pairs. Active connected inputs pass through unchanged; unconnected outputs return an 8 × 8 black image.
+*   **Szandor Auto Crop** (`SzandorAutoCrop`): Crops an image or batch to selected proportions, with center/edge alignment and dimension divisibility by 64, 32, 16, or 8. Connect `image`, select the options, and use the cropped `image` output. Does not rescale; images too small for the requested proportions and divisibility fall back to dimensions that fit the source, so the resulting aspect ratio may differ.
 *   **Multi Image Loader**: An advanced node for loading multiple images at once (up to 16). Features:
     *   `image_count` slider (1–16) – controls the number of active slots and output pins
     *   Thumbnails – each loaded image displays a preview directly inside the node
@@ -104,10 +142,12 @@ A collection of custom nodes for ComfyUI, focusing on LLM integration (Prompt En
     *   Workflow save/load – slot filenames and count are saved in the workflow JSON
 
 ### 🎬 Music Videos — 🚧 work in progress
+
 *   **Music Video Director (MiniMax H3)** *(work in progress, not finished yet)*: Experimental node for building music videos. Load a track, place keyframes on the waveform (5–15 s apart, MiniMax H3's clip-length limit), attach an image + prompt to each keyframe, and the node generates one video segment per gap (via the paid MiniMax H3 API, billed through your comfy.org credits) and stitches them into a final video with the audio muxed in. Includes a `dry_run` mode (validate + estimate cost without generating), on-disk segment caching (so you don't pay twice for an unchanged segment), and an optional "local" backend (`video_in_01..39`) to plug in clips generated by your own local workflow instead of the paid API.
     *   ⚠️ **Status: work in progress, not finished yet.** The waveform UI (dynamic sockets, canvas widget) can still be visually unstable and is actively being refined — test with `dry_run=True` first before relying on it.
 
 ### 🛠️ Utilities
+
 *   **Batch Image Loader With Name**: Loads images from a folder along with their filenames (useful for batch img2img).
 *   **Text Directory Loader**: Loads the content of text files from a specified directory.
 *   **Text File Picker (Folder)**: Loads a prompt from a selected `.txt` file in a target folder, with sorting options (name/modified date, ascending/descending).
@@ -121,17 +161,35 @@ A collection of custom nodes for ComfyUI, focusing on LLM integration (Prompt En
     ```
 2.  Clone the repository:
     ```bash
-    git clone https://github.com/YOUR_USERNAME/ComfyUI-Szandor.git
+    git clone https://github.com/szandor25/ComfyUI-Szandor.git
     ```
 3.  Install required requirements:
     ```bash
     cd ComfyUI-Szandor
-    pip install -r requirements.txt
+    python -m pip install -r requirements.txt python-dotenv
     ```
+
+Use the Python environment that runs ComfyUI. Existing LLM integrations also require `python-dotenv`. Restart ComfyUI and refresh the browser with **Ctrl+F5** to load the nodes and their interfaces.
+
+## 🔄 Updating and starting the H3 editor
+
+Run `git pull --ff-only` inside the installed repository, restart ComfyUI, and refresh the browser with **Ctrl+F5**. Search for **MiniMax H3 — Edytor promptów (Szandor)** under `Szandor/Prompt`. Connect `prompt` to your H3 text encoder's `text` input, enter your prompt, and save the workflow to retain the text and editor dimensions. The editor itself does not load a model or generate video.
+
+## 📝 Recent changes
+
+*   **2026-09-09 — MiniMax H3 editor**: syntax highlighting, dialogue pairing and diagnostics, tag/template insertion, resizing, and workflow size persistence. Includes syntax tests and a Chromium UI test.
+*   **LoRA Stack columns** (`9a16ac1`): configurable entries per column, saved in the workflow.
+*   **LoRA Stack triggers** (`44c90e0`): local trigger loading, editing, prompt integration, and suggestions from training metadata.
+*   **Documentation**: added missing image-node descriptions, corrected the Qwen descriptions, and completed installation/update instructions. See the [repository commits](https://github.com/szandor25/ComfyUI-Szandor/commits/main/) for the full history.
+
+## 🧪 Tests
+
+From the repository directory, run `python -m unittest discover -s tests -p 'test_*.py'` and `node --test tests/test_h3_prompt_syntax.mjs` (Node.js with ES module detection for `.js`, such as 22.7+). Run the browser test with `CHROME_PATH=/path/to/chrome node tests/test_h3_prompt_browser.mjs`. It requires no npm packages, uses a minimal ComfyUI widget host, and does not run H3 generation.
 
 ## 🔑 Configuration
 
 To use the LLM nodes, you need to configure API keys.
+
 1.  Edit `config.json` (optional, to add custom models).
 2.  Set environment variables in your system or startup script:
     *   `DASHSCOPE_API_KEY` (for Qwen)

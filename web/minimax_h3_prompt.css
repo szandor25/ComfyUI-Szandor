@@ -1,0 +1,57 @@
+.szandor-h3-editor {
+    display: flex; flex-direction: column; height: 100%; width: 100%;
+    min-height: 230px; min-width: 0; overflow: hidden; box-sizing: border-box;
+    border: 1px solid #465069; border-radius: 7px; background: #151922;
+    color: #dce3ee; font: 12px system-ui, sans-serif;
+}
+.szandor-h3-editor * { box-sizing: border-box; }
+.szandor-h3-editor .h3-toolbar { display: flex; gap: 6px; padding: 7px; flex-shrink: 0; border-bottom: 1px solid #343c4d; }
+.szandor-h3-editor .h3-snippets { flex: 1; min-width: 0; }
+.szandor-h3-editor .h3-button, .szandor-h3-editor .h3-snippets {
+    border: 1px solid #4b5670; border-radius: 4px; background: #262e3e;
+    color: #e8edf5; padding: 5px 8px; font: inherit;
+}
+.szandor-h3-editor button { cursor: pointer; }
+.szandor-h3-editor .h3-button:hover { background: #37445d; }
+.szandor-h3-editor :focus-visible { outline: 2px solid #a8caff; outline-offset: -2px; }
+.szandor-h3-editor .h3-guide { flex: 0 1 auto; max-height: 42%; overflow: auto; padding: 4px 10px 10px; line-height: 1.5; border-bottom: 1px solid #343c4d; }
+.szandor-h3-editor .h3-guide[hidden] { display: none; }
+.szandor-h3-editor .h3-guide p { margin: 6px 0; }
+.szandor-h3-editor .h3-guide a { color: #a8caff; }
+.szandor-h3-editor .h3-surface { position: relative; flex: 1 1 0; min-height: 80px; overflow: hidden; }
+/* Geometry must stay identical: only paint differs between the two layers. */
+.szandor-h3-editor .h3-text {
+    position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+    margin: 0; border: 0; border-radius: 0; padding: 12px;
+    font: 14px/1.6 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    font-variant-ligatures: none; letter-spacing: normal; text-align: left;
+    white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+    tab-size: 4; text-transform: none; text-indent: 0;
+}
+.szandor-h3-editor .h3-highlight { pointer-events: none; overflow: hidden; color: #dce3ee; background: transparent; }
+.szandor-h3-editor .h3-input {
+    resize: none; overflow: auto; color: transparent; -webkit-text-fill-color: transparent;
+    caret-color: #ffffff; background: transparent; outline: none;
+}
+.szandor-h3-editor .h3-input::placeholder { color: #8490a5; -webkit-text-fill-color: #8490a5; opacity: 1; }
+.szandor-h3-editor .h3-input::selection { background: #43639799; }
+.szandor-h3-editor .h3-dialogue { color: #73e0ba; }
+.szandor-h3-editor .h3-shot { color: #ffc879; }
+.szandor-h3-editor .h3-bracket { color: #e2c684; }
+.szandor-h3-editor .h3-reference { color: #8bc9ff; }
+.szandor-h3-editor .h3-speaker { color: #e0acff; }
+.szandor-h3-editor .h3-boundary { color: #ffabbf; }
+.szandor-h3-editor .h3-section { color: #a8baff; }
+.szandor-h3-editor .h3-relation { color: #8dd6d4; }
+.szandor-h3-editor .h3-tag { color: #a1a9b8; }
+.szandor-h3-editor .h3-error { text-decoration: underline wavy #ff7d89; text-underline-offset: 3px; }
+.szandor-h3-editor .h3-paired { background: #38515c; border-radius: 2px; }
+.szandor-h3-editor .h3-footer { display: flex; align-items: center; flex-shrink: 0; min-height: 27px; border-top: 1px solid #343c4d; }
+.szandor-h3-editor .h3-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 8px; text-align: left; font: 11px system-ui, sans-serif; color: #a9b5c9; background: none; border: 0; }
+.szandor-h3-editor .h3-status:disabled { cursor: default; opacity: 1; }
+.szandor-h3-editor .h3-has-issues { color: #ffc879; }
+.szandor-h3-editor .h3-grip { cursor: nwse-resize; touch-action: none; user-select: none; padding: 3px 7px; color: #a8baff; }
+@media (forced-colors: active) {
+    .szandor-h3-editor .h3-highlight { visibility: hidden; }
+    .szandor-h3-editor .h3-input { color: CanvasText; -webkit-text-fill-color: CanvasText; caret-color: CanvasText; }
+}
