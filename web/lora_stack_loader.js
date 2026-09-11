@@ -11,6 +11,7 @@ const STRENGTH_MIN = 0;
 const STRENGTH_MAX = 2;
 const STRENGTH_STEP = 0.05;
 const SLIDER_WIDTH = 126;
+const ENABLED_COLOR = "#35b86b";
 const thumbCache = new Map();
 let loraListPromise = null;
 let previewElement = null;
@@ -148,19 +149,25 @@ function editTrigger(row, onSave) {
     readMetadata();
 }
 
-function loadLoraList() {
-    if (!loraListPromise) {
-        loraListPromise = api.fetchApi("/szandor/loras")
+function loadLoraList(refresh = false) {
+    if (refresh || !loraListPromise) {
+        const request = api.fetchApi("/szandor/loras")
             .then(response => {
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 return response.json();
             })
-            .then(data => data.loras ?? [])
+            .then(data => {
+                if (!Array.isArray(data.loras) || data.loras.some(name => typeof name !== "string")) {
+                    throw new Error("Nieprawidłowa lista LoRA");
+                }
+                return data.loras;
+            })
             .catch(error => {
-                loraListPromise = null;
+                if (loraListPromise === request) loraListPromise = null;
                 console.error("[Szandor LoRA Stack] Nie udało się pobrać listy LoRA:", error);
-                return [];
+                return null;
             });
+        loraListPromise = request;
     }
     return loraListPromise;
 }
@@ -239,7 +246,8 @@ function strengthFromSlider(x, sliderX) {
 }
 
 function chooseLora(currentName = "", excludedNames = [], multiple = false) {
-    return loadLoraList().then(loras => new Promise(resolve => {
+    return loadLoraList(true).then(loras => new Promise(resolve => {
+        loras ??= [];
         const excluded = new Set(excludedNames.filter(name => name !== currentName));
         const selectedNames = new Set();
         const backdrop = document.createElement("div");
@@ -526,7 +534,24 @@ function makeStackWidget(node, initialValue) {
         setRowsFromValue() {
             this.rows = safeRows(this.value);
             for (const row of this.rows) this.prepareThumbnail(row);
+            this.refreshAvailability(true);
             this.sync(true);
+        },
+
+        async refreshAvailability(refresh = false) {
+            const version = this._availabilityVersion = (this._availabilityVersion ?? 0) + 1;
+            const rows = this.rows.map(row => ({ row, name: row.name }));
+            if (!rows.length) return;
+            for (const { row } of rows) row.availability = "checking";
+            node.setDirtyCanvas(true, true);
+            const names = await loadLoraList(refresh);
+            if (this._availabilityVersion !== version) return;
+            const available = names === null ? null : new Set(names);
+            for (const { row, name } of rows) {
+                if (row.name !== name) continue;
+                row.availability = available === null ? "error" : available.has(name) ? "available" : "missing";
+            }
+            node.setDirtyCanvas(true, true);
         },
 
         prepareThumbnail(row) {
@@ -560,7 +585,7 @@ function makeStackWidget(node, initialValue) {
             ctx.textBaseline = "middle";
 
             const allEnabled = this.rows.length > 0 && this.rows.every(row => row.enabled);
-            ctx.fillStyle = allEnabled ? "#9483c2" : "#777";
+            ctx.fillStyle = allEnabled ? ENABLED_COLOR : "#666";
             ctx.beginPath();
             ctx.roundRect(12, y + 7, 34, 18, 10);
             ctx.fill();
@@ -571,6 +596,18 @@ function makeStackWidget(node, initialValue) {
             ctx.fillStyle = "#aaa";
             ctx.textAlign = "left";
             ctx.fillText("Włącz wszystkie", 56, y + 16);
+
+            ctx.fillStyle = "#292536";
+            ctx.strokeStyle = "#75689b";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.roundRect(width - 338, y + 5, 58, 22, 5);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = "#cbbcff";
+            ctx.font = "11px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("Sprawdź", width - 309, y + 16);
 
             const sortX = width - 274;
             ctx.fillStyle = "#292536";
@@ -604,15 +641,16 @@ function makeStackWidget(node, initialValue) {
                 const thumbX = width - 214;
                 const sliderX = width - 164;
 
-                ctx.fillStyle = row.enabled ? "#303030" : "#252525";
-                ctx.strokeStyle = row.enabled ? "#777" : "#444";
+                const missing = row.availability === "missing";
+                ctx.fillStyle = missing ? "#392727" : row.enabled ? "#303030" : "#252525";
+                ctx.strokeStyle = missing ? "#e57575" : row.enabled ? "#777" : "#444";
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.roundRect(8, top + 3, width - 16, ROW_HEIGHT - 6, 10);
                 ctx.fill();
                 ctx.stroke();
 
-                ctx.fillStyle = row.enabled ? "#8fa5d2" : "#666";
+                ctx.fillStyle = row.enabled ? ENABLED_COLOR : "#666";
                 ctx.beginPath();
                 ctx.roundRect(14, middle - 9, 32, 18, 10);
                 ctx.fill();
@@ -621,10 +659,18 @@ function makeStackWidget(node, initialValue) {
                 ctx.arc(row.enabled ? 36 : 23, middle, 7, 0, Math.PI * 2);
                 ctx.fill();
 
-                ctx.fillStyle = row.enabled ? "#eee" : "#777";
+                const availabilityLabel = missing ? "Brak pliku LoRA"
+                    : row.availability === "error" ? "Nie udało się sprawdzić"
+                    : row.availability === "checking" ? "Sprawdzanie pliku…" : "";
+                ctx.fillStyle = missing ? "#ffaaaa" : row.enabled ? "#eee" : "#777";
                 ctx.font = "13px sans-serif";
                 ctx.textAlign = "left";
-                ctx.fillText(shorten(ctx, row.name, width - 292), 56, middle);
+                ctx.fillText(shorten(ctx, row.name, width - 292), 56, availabilityLabel ? middle - 7 : middle);
+                if (availabilityLabel) {
+                    ctx.font = "11px sans-serif";
+                    ctx.fillStyle = missing ? "#ffaaaa" : "#c9aa70";
+                    ctx.fillText(availabilityLabel, 56, middle + 11);
+                }
 
                 ctx.fillStyle = "#171717";
                 ctx.fillRect(thumbX, top + 8, 38, 36);
@@ -736,6 +782,11 @@ function makeStackWidget(node, initialValue) {
             if (event.type !== "pointerdown") return false;
             if (x < 0 || x >= node.size[0] || y < 0) return false;
 
+            if (y < HEADER_HEIGHT && x >= node.size[0] - 338 && x <= node.size[0] - 280) {
+                await this.refreshAvailability(true);
+                return true;
+            }
+
             if (y < HEADER_HEIGHT && x >= node.size[0] - 208 && x <= node.size[0] - 12) {
                 app.canvas.prompt("Liczba LoRA na kolumnę (dodatnia liczba całkowita)", String(layout.limit), value => {
                     const limit = Number(value);
@@ -821,6 +872,7 @@ function makeStackWidget(node, initialValue) {
                         row.use_trigger = false;
                         row.suggestionCount = 0;
                         this.prepareThumbnail(row);
+                        this.refreshAvailability();
                         this.sync();
                     }
                     return true;
@@ -844,6 +896,7 @@ function makeStackWidget(node, initialValue) {
                         existingNames.add(name);
                         this.prepareThumbnail(row);
                     }
+                    this.refreshAvailability();
                     this.sync();
                 }
                 return true;
@@ -859,6 +912,7 @@ function makeStackWidget(node, initialValue) {
     };
 
     for (const row of widget.rows) widget.prepareThumbnail(row);
+    widget.refreshAvailability();
     return widget;
 }
 

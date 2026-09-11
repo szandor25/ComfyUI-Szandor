@@ -3,11 +3,14 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 
-function setup(fetchApi = async () => ({ ok: true, json: async () => ({ trigger: "detected" }) })) {
+function setup(
+    fetchApi = async () => ({ ok: true, json: async () => ({ trigger: "detected" }) }),
+    fetchList = async () => ({ ok: true, json: async () => ({ loras: [] }) }),
+) {
     let extension;
     const context = vm.createContext({
         app: { registerExtension: value => { extension = value; } },
-        api: { fetchApi, apiURL: value => value },
+        api: { fetchApi: url => url === "/szandor/loras" ? fetchList(url) : fetchApi(url), apiURL: value => value },
         Image: class { set src(_) { this.onerror(); } },
         console, setTimeout,
     });
@@ -210,4 +213,85 @@ test("thumbnail hit regions follow columns and widget offsets", () => {
         index: 20, x: 1346, y: 38, width: 38, height: 36,
     });
     assert.equal(widget._thumbRects[29].y, 38 + 9 * 82);
+});
+
+test("missing files are detected by full model name, independently of thumbnails and toggles", async () => {
+    let requests = 0;
+    const { context, node } = setup(undefined, async () => {
+        requests++;
+        return { ok: true, json: async () => ({ loras: ["folder/style.safetensors"] }) };
+    });
+    const rows = [
+        { name: "folder/style.safetensors", enabled: true, strength: 1, trigger: "", use_trigger: false },
+        { name: "other/style.safetensors", enabled: false, strength: 1, trigger: "", use_trigger: false },
+    ];
+    const widget = context.makeWidget(node, JSON.stringify(rows));
+    assert.equal(widget.rows[0].availability, "checking");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 1);
+    assert.equal(widget.rows[0].thumbnail, null);
+    assert.equal(widget.rows[0].availability, "available");
+    assert.equal(widget.rows[1].availability, "missing");
+    assert.deepEqual(JSON.parse(widget.serializeValue()), rows);
+    const labels = [];
+    const ctx = new Proxy({
+        measureText: text => ({ width: text.length * 6 }),
+        fillText: text => labels.push(text),
+    }, { get: (target, key) => target[key] ?? (() => {}) });
+    widget.draw(ctx, node, 520, 0);
+    assert.equal(labels.filter(text => text === "Brak pliku LoRA").length, 1);
+});
+
+test("Sprawdź reloads the model list and clears the warning after a file is installed", async () => {
+    let names = [];
+    let requests = 0;
+    const { context, node } = setup(undefined, async () => {
+        requests++;
+        return { ok: true, json: async () => ({ loras: names }) };
+    });
+    const widget = context.makeWidget(node, '[{"name":"style","trigger":""}]');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(widget.rows[0].availability, "missing");
+    names = ["style"];
+    await widget.mouse({ type: "pointerdown" }, [211, 16]);
+    assert.equal(requests, 2);
+    assert.equal(widget.rows[0].availability, "available");
+    names = [];
+    widget.value = widget.serializeValue();
+    widget.setRowsFromValue();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 3);
+    assert.equal(widget.rows[0].availability, "missing");
+});
+
+test("failed or malformed model lists do not report missing files and can be retried", async () => {
+    for (const response of [
+        () => { throw new Error("offline"); },
+        () => ({ ok: false, status: 500 }),
+        () => ({ ok: true, json: async () => ({}) }),
+    ]) {
+        let fail = true;
+        const { context, node } = setup(undefined, async () => fail
+            ? response() : { ok: true, json: async () => ({ loras: ["style"] }) });
+        context.console = { ...console, error() {} };
+        const widget = context.makeWidget(node, '[{"name":"style","trigger":""}]');
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(widget.rows[0].availability, "error");
+        fail = false;
+        await widget.refreshAvailability();
+        assert.equal(widget.rows[0].availability, "available");
+    }
+});
+
+test("an older availability response cannot overwrite a newer check or renamed LoRA", async () => {
+    const pending = [];
+    const { context, node } = setup(undefined, () => new Promise(resolve => pending.push(resolve)));
+    const widget = context.makeWidget(node, '[{"name":"old","trigger":""}]');
+    widget.rows[0].name = "new";
+    const check = widget.refreshAvailability(true);
+    pending[1]({ ok: true, json: async () => ({ loras: ["new"] }) });
+    await check;
+    pending[0]({ ok: true, json: async () => ({ loras: [] }) });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(widget.rows[0].availability, "available");
 });
