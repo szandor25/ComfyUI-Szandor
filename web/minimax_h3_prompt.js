@@ -47,7 +47,14 @@ export function createEditor(node, name, inputData) {
     const templates = element("button", "h3-button", "Szablony");
     templates.type = "button";
     templates.title = "Zapisuj i wczytuj workflow z pełnym promptem i kopiami zdjęć";
-    toolbar.append(snippets, insert, help, templates);
+    const paste = element("button", "h3-button h3-paste", "📋");
+    paste.type = "button";
+    paste.title = "Wklej prompt ze schowka — zastępuje całą treść. Ctrl+Z cofa zmianę.";
+    paste.setAttribute("aria-label", "Wklej prompt ze schowka");
+    toolbar.append(snippets, insert, paste, help, templates);
+    const clipboardStatus = element("p", "h3-clipboard-status");
+    clipboardStatus.hidden = true;
+    clipboardStatus.setAttribute("role", "status");
 
     const guide = element("div", "h3-guide");
     guide.hidden = true;
@@ -86,7 +93,7 @@ export function createEditor(node, name, inputData) {
     grip.title = "Przeciągnij, aby zmienić rozmiar. Rozmiar zapisuje się w workflow.";
     grip.setAttribute("aria-hidden", "true");
     footer.append(status, grip);
-    root.append(toolbar, guide, surface, footer);
+    root.append(toolbar, clipboardStatus, guide, surface, footer);
 
     let analysis;
     let issueIndex = 0;
@@ -137,6 +144,7 @@ export function createEditor(node, name, inputData) {
         node.setDirtyCanvas?.(true, true);
     };
     input.addEventListener("input", changed);
+    input.addEventListener("input", () => { clipboardStatus.hidden = true; });
     input.addEventListener("scroll", syncScroll);
     input.addEventListener("click", scheduleRender);
     input.addEventListener("keyup", scheduleRender);
@@ -147,6 +155,43 @@ export function createEditor(node, name, inputData) {
     root.addEventListener("pointerdown", event => event.stopPropagation());
     root.addEventListener("wheel", event => event.stopPropagation(), { passive: true });
     root.addEventListener("dblclick", event => event.stopPropagation());
+
+    paste.addEventListener("mousedown", event => event.preventDefault());
+    paste.addEventListener("click", async () => {
+        if (paste.disabled) return;
+        paste.disabled = true;
+        clipboardStatus.hidden = true;
+        const previous = input.value;
+        try {
+            const text = await navigator.clipboard.readText();
+            if (disposed) return;
+            if (input.value !== previous) {
+                clipboardStatus.textContent = "Prompt zmienił się podczas odczytu schowka. Kliknij 📋 ponownie, aby go zastąpić.";
+                clipboardStatus.hidden = false;
+                return;
+            }
+            if (!text) {
+                clipboardStatus.textContent = "Schowek nie zawiera tekstu.";
+                clipboardStatus.hidden = false;
+                return;
+            }
+            input.focus({ preventScroll: true });
+            input.select();
+            // Native insertion keeps replacement in the textarea's undo history.
+            const inserted = document.execCommand?.("insertText", false, text);
+            if (!inserted) {
+                input.setRangeText(text, 0, input.value.length, "end");
+                changed();
+            }
+            scheduleRender();
+        } catch {
+            if (disposed) return;
+            input.focus({ preventScroll: true });
+            input.select();
+            clipboardStatus.textContent = "Przeglądarka nie udostępniła schowka. Naciśnij Ctrl+V (Mac: ⌘V), aby zastąpić zaznaczony prompt.";
+            clipboardStatus.hidden = false;
+        } finally { paste.disabled = false; }
+    });
 
     insert.addEventListener("mousedown", event => event.preventDefault());
     insert.addEventListener("click", () => {

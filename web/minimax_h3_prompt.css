@@ -13,6 +13,9 @@
 }
 .szandor-h3-editor button { cursor: pointer; }
 .szandor-h3-editor .h3-button:hover { background: #37445d; }
+.szandor-h3-editor .h3-paste { flex-shrink: 0; }
+.szandor-h3-editor .h3-paste:disabled { opacity: .55; cursor: wait; }
+.szandor-h3-editor .h3-clipboard-status { margin: 0; padding: 5px 8px; flex-shrink: 0; color: #ffc879; font-size: 11px; }
 .szandor-h3-editor :focus-visible { outline: 2px solid #a8caff; outline-offset: -2px; }
 .szandor-h3-editor .h3-guide { flex: 0 1 auto; max-height: 42%; overflow: auto; padding: 4px 10px 10px; line-height: 1.5; border-bottom: 1px solid #343c4d; }
 .szandor-h3-editor .h3-guide[hidden] { display: none; }

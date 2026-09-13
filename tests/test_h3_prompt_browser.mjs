@@ -138,6 +138,27 @@ try {
     await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", modifiers: 2, windowsVirtualKeyCode: 90 });
     assert.equal(await evaluate("widget.value"), text);
 
+    // Clipboard replacement affects the whole prompt and remains undoable.
+    await evaluate("Object.defineProperty(navigator, 'clipboard', {configurable:true, value:{readText:async()=> '  <d>[Polish] Nowy prompt!</d>\\n'}}); widget.inputEl.setSelectionRange(2,5); document.querySelector('.h3-paste').click()");
+    await settle();
+    assert.equal(await evaluate("widget.serializeValue()"), "  <d>[Polish] Nowy prompt!</d>\n");
+    await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", modifiers: 2, windowsVirtualKeyCode: 90 });
+    await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", modifiers: 2, windowsVirtualKeyCode: 90 });
+    assert.equal(await evaluate("widget.value"), text);
+    await evaluate("navigator.clipboard.readText=async()=>''; document.querySelector('.h3-paste').click()");
+    await settle();
+    assert.equal(await evaluate("widget.value"), text);
+    assert.match(await evaluate("document.querySelector('.h3-clipboard-status').textContent"), /nie zawiera tekstu/);
+    await evaluate("navigator.clipboard.readText=async()=>{throw new Error('denied')}; document.querySelector('.h3-paste').click()");
+    await settle();
+    assert.equal(await evaluate("widget.value"), text);
+    assert.equal(await evaluate("widget.inputEl.selectionEnd-widget.inputEl.selectionStart"), text.length);
+    assert.match(await evaluate("document.querySelector('.h3-clipboard-status').textContent"), /Ctrl\+V/);
+    await evaluate("navigator.clipboard.readText=()=>new Promise(resolve=>window.finishClipboard=resolve); document.querySelector('.h3-paste').click(); widget.value='Changed while waiting'; finishClipboard('stale clipboard')");
+    await settle();
+    assert.equal(await evaluate("widget.value"), "Changed while waiting");
+    assert.equal(await evaluate("document.querySelector('.h3-paste').disabled"), false);
+
     await evaluate("widget.value = '<d>[Polish] Niedomknięty dialog';");
     assert.equal(await evaluate("document.querySelector('.h3-status').disabled"), false);
     await evaluate("document.querySelector('.h3-status').click()");
@@ -222,7 +243,7 @@ try {
     await evaluate("widget.onRemove()");
     assert.equal(await evaluate("document.querySelectorAll('.szandor-h3-editor').length"), 0);
     assert.deepEqual(errors, []);
-    console.log("PASS: native input, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
+    console.log("PASS: native input, clipboard replacement + undo/failure/empty/race, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
 } finally {
     chrome.kill();
     await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));
