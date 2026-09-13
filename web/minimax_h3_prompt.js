@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { analyzePrompt, highlightPrompt, SNIPPETS } from "./h3_prompt_syntax.js";
+import { openTemplates } from "./h3_templates.js";
 
 const NODE_TYPE = "SzandorMiniMaxH3Prompt";
 const MIN_SIZE = [360, 300];
@@ -43,7 +44,10 @@ export function createEditor(node, name, inputData) {
     const help = element("button", "h3-button", "Składnia");
     help.type = "button";
     help.setAttribute("aria-expanded", "false");
-    toolbar.append(snippets, insert, help);
+    const templates = element("button", "h3-button", "Szablony");
+    templates.type = "button";
+    templates.title = "Zapisuj i wczytuj workflow z pełnym promptem i kopiami zdjęć";
+    toolbar.append(snippets, insert, help, templates);
 
     const guide = element("div", "h3-guide");
     guide.hidden = true;
@@ -72,6 +76,7 @@ export function createEditor(node, name, inputData) {
     input.wrap = "soft";
     input.placeholder = "Wpisz lub wklej prompt…\n\n(S1) says: <d>[Polish] Cześć!</d>";
     input.value = inputData?.[1]?.default ?? "";
+    templates.addEventListener("click", () => openTemplates(node, () => input.value));
     surface.append(mirror, input);
 
     const footer = element("div", "h3-footer");

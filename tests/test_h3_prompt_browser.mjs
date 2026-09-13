@@ -9,12 +9,14 @@ import { tmpdir } from "node:os";
 const chromePath = process.env.CHROME_PATH;
 if (!chromePath) throw new Error("Set CHROME_PATH to a Chromium executable.");
 const repo = new URL("../", import.meta.url);
+let savedTemplate = null;
+let deleteRequests = 0;
 const html = `<!doctype html><html><head><meta charset="UTF-8"></head>
 <body style="background:#252930;padding:30px"><script type="module">
 import { app } from '/scripts/app.js';
 import '/web/minimax_h3_prompt.js';
 class Host {
-  constructor() { this.size = [640,480]; this.properties = {}; this.widgets = []; this.graph = { change() {}, beforeChange() {}, afterChange() {} }; }
+  constructor() { this.id = 1; this.size = [640,480]; this.properties = {}; this.widgets = []; this.graph = app.graph; }
   addDOMWidget(name, type, element, options) {
     this.element = element; document.body.append(element);
     const widget = { name, type, element, options, onRemove() { element.remove(); } };
@@ -32,6 +34,8 @@ window.makeNode = () => {
   node.onNodeCreated(); return node;
 };
 window.node = makeNode(); window.widget = node.widgets[0];
+app.graph.getNodeById = id => id === 1 ? node : { id:2, type:'LoadImage', widgets:[{name:'image',value:'reference.png'}], outputs:[{type:'IMAGE'}] };
+app.graph.serialize = () => ({nodes:[{id:1,type:'SzandorMiniMaxH3Prompt',widgets_values:[widget.value]},{id:2,type:'LoadImage',widgets_values:['reference.png']}],links:[]});
 window.ready = true;
 </script></body></html>`;
 const server = createServer(async (req, res) => {
@@ -39,7 +43,34 @@ const server = createServer(async (req, res) => {
         if (req.url === "/") { res.setHeader("Content-Type", "text/html; charset=utf-8"); res.end(html); return; }
         if (req.url === "/scripts/app.js") {
             res.setHeader("Content-Type", "text/javascript");
-            res.end("export const app = { extensions: [], registerExtension(e) { this.extensions.push(e); } };"); return;
+            res.end("export const app = { extensions: [], graph: { change() {}, beforeChange() {}, afterChange() {} }, async loadGraphData(data) { window.loadedWorkflow = data; }, registerExtension(e) { this.extensions.push(e); } };"); return;
+        }
+        if (req.url === "/scripts/api.js") {
+            res.setHeader("Content-Type", "text/javascript");
+            res.end("export const api = { fetchApi: (path, options) => fetch(path, options), apiURL: path => path };"); return;
+        }
+        if (req.url.startsWith("/szandor/h3-templates")) {
+            res.setHeader("Content-Type", "application/json");
+            if (req.method === "DELETE") {
+                assert.equal(req.url, `/szandor/h3-templates/${savedTemplate.id}`);
+                deleteRequests++;
+                savedTemplate = null;
+                res.end(JSON.stringify({ deleted: "a".repeat(32) })); return;
+            }
+            if (req.method === "POST" && req.url.endsWith("/restore")) {
+                const workflow = structuredClone(savedTemplate.workflow);
+                workflow.nodes[1].widgets_values[0] = "szandor_h3_templates/copy.png";
+                res.end(JSON.stringify({ workflow })); return;
+            }
+            if (req.method === "POST") {
+                let body = "";
+                for await (const chunk of req) body += chunk;
+                savedTemplate = { ...JSON.parse(body), id: "a".repeat(32), created_at: new Date().toISOString() };
+                savedTemplate.images = savedTemplate.images.map(ref => ({ ...ref, file: "image.png", original_name: "reference.png" }));
+                res.end(JSON.stringify(savedTemplate)); return;
+            }
+            if (req.url.includes("/images/")) { res.writeHead(404).end(); return; }
+            res.end(JSON.stringify(req.url === "/szandor/h3-templates" ? (savedTemplate ? [savedTemplate] : []) : savedTemplate)); return;
         }
         if (!/^\/web\/[a-z0-9_]+\.(js|css)$/.test(req.url)) { res.writeHead(404).end(); return; }
         res.setHeader("Content-Type", req.url.endsWith("css") ? "text/css" : "text/javascript");
@@ -137,6 +168,51 @@ try {
     assert.deepEqual(restored.size, size);
     assert.deepEqual(restored.savedSize, size);
     assert.equal(restored.text, await evaluate("widget.value"));
+    // Save and load through the visible library; backend copy integrity is tested in Python.
+    await evaluate("widget.value = '  <d>[Polish] Szablon!</d>\\n'; [...node.element.querySelectorAll('button')].find(b=>b.textContent==='Szablony').click()");
+    await evaluate("document.querySelector('[aria-label=\"Nazwa szablonu\"]').value='Moja scena'; document.querySelector('[aria-label=\"Informacyjny czas trwania w sekundach\"]').value='8.5'; document.querySelector('.h3-template-form').requestSubmit()");
+    for (let i = 0; i < 100; i++) {
+        if (await evaluate("document.querySelector('.h3-template-preview button')?.disabled === false")) break;
+        await new Promise(r => setTimeout(r, 50));
+    }
+    assert.equal(savedTemplate.prompt, "  <d>[Polish] Szablon!</d>\n");
+    assert.equal(savedTemplate.images.length, 1);
+    assert.equal(savedTemplate.duration, 8.5);
+    assert.equal(await evaluate("document.querySelector('.h3-template-prompt').textContent"), savedTemplate.prompt);
+    assert.equal(await evaluate("document.querySelectorAll('.h3-template-gallery img').length"), 1);
+    await evaluate("document.querySelector('.h3-template-preview button').click()");
+    for (let i = 0; i < 100; i++) {
+        if (await evaluate("!document.querySelector('.h3-template-dialog')")) break;
+        await new Promise(r => setTimeout(r, 50));
+    }
+    assert.equal(await evaluate("loadedWorkflow.nodes[1].widgets_values[0]"), "szandor_h3_templates/copy.png");
+    assert.equal(await evaluate("loadedWorkflow.nodes[0].widgets_values[0]"), savedTemplate.prompt);
+    await evaluate("[...node.element.querySelectorAll('button')].find(b=>b.textContent==='Szablony').click()");
+    for (let i = 0; i < 100; i++) {
+        if (await evaluate("!!document.querySelector('.h3-template-list button')")) break;
+        await new Promise(r => setTimeout(r, 50));
+    }
+    await evaluate("document.querySelector('.h3-template-list button').click()");
+    for (let i = 0; i < 100; i++) {
+        if (await evaluate("!!document.querySelector('.h3-template-actions .h3-template-delete')")) break;
+        await new Promise(r => setTimeout(r, 50));
+    }
+    await evaluate("document.querySelector('.h3-template-actions .h3-template-delete').click()");
+    assert.equal(await evaluate("document.querySelector('.h3-template-delete-confirm').hidden"), false);
+    assert.equal(deleteRequests, 0);
+    await evaluate("[...document.querySelectorAll('.h3-template-delete-confirm button')].find(b=>b.textContent==='Anuluj').click()");
+    assert.equal(await evaluate("document.querySelector('.h3-template-delete-confirm').hidden"), true);
+    assert.equal(deleteRequests, 0);
+    await evaluate("document.querySelector('.h3-template-actions .h3-template-delete').click(); document.querySelector('.h3-template-delete-confirm .h3-template-delete').click()");
+    for (let i = 0; i < 100; i++) {
+        if (await evaluate("document.querySelector('.h3-template-message').textContent.startsWith('Usunięto') && !document.querySelector('.h3-template-list button')")) break;
+        await new Promise(r => setTimeout(r, 50));
+    }
+    assert.equal(deleteRequests, 1);
+    assert.equal(savedTemplate, null);
+    assert.equal(await evaluate("document.querySelector('.h3-template-preview').children.length"), 0);
+    assert.equal(await evaluate("loadedWorkflow.nodes[1].widgets_values[0]"), "szandor_h3_templates/copy.png");
+    await evaluate("document.querySelector('.h3-template-heading button').click()");
     await evaluate("node.element.style.transform=''; widget.value='integrated_multimodal_description: [Shot 1] A woman (S1) says: <d>[Polish] Cześć!</d>\\n\\noverall_soundscape: Wind moves through the trees.\\n\\nnon_diegetic_music: N/A'; widget.inputEl.setSelectionRange(80,80)");
     await settle();
     if (process.env.H3_SCREENSHOT) {
@@ -146,7 +222,7 @@ try {
     await evaluate("widget.onRemove()");
     assert.equal(await evaluate("document.querySelectorAll('.szandor-h3-editor').length"), 0);
     assert.deepEqual(errors, []);
-    console.log("PASS: native input, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, cleanup.");
+    console.log("PASS: native input, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
 } finally {
     chrome.kill();
     await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));

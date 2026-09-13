@@ -30,6 +30,7 @@ from .nodes.music_video_director import NODE_DISPLAY_NAME_MAPPINGS as MVD_NODE_D
 
 from .nodes.minimax_h3_prompt import NODE_CLASS_MAPPINGS as H3_PROMPT_NODE_CLASS_MAPPINGS
 from .nodes.minimax_h3_prompt import NODE_DISPLAY_NAME_MAPPINGS as H3_PROMPT_NODE_DISPLAY_NAME_MAPPINGS
+from .nodes import h3_templates  # Register the local template library routes.
 
 WEB_DIRECTORY = "./web"
 

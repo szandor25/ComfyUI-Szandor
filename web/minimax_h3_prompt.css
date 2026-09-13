@@ -5,7 +5,7 @@
     color: #dce3ee; font: 12px system-ui, sans-serif;
 }
 .szandor-h3-editor * { box-sizing: border-box; }
-.szandor-h3-editor .h3-toolbar { display: flex; gap: 6px; padding: 7px; flex-shrink: 0; border-bottom: 1px solid #343c4d; }
+.szandor-h3-editor .h3-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 7px; flex-shrink: 0; border-bottom: 1px solid #343c4d; }
 .szandor-h3-editor .h3-snippets { flex: 1; min-width: 0; }
 .szandor-h3-editor .h3-button, .szandor-h3-editor .h3-snippets {
     border: 1px solid #4b5670; border-radius: 4px; background: #262e3e;
@@ -55,3 +55,41 @@
     .szandor-h3-editor .h3-highlight { visibility: hidden; }
     .szandor-h3-editor .h3-input { color: CanvasText; -webkit-text-fill-color: CanvasText; caret-color: CanvasText; }
 }
+
+.h3-template-dialog {
+    width: min(920px, 92vw); max-height: 88vh; overflow: auto; padding: 20px;
+    color: #dce3ee; background: #151922; border: 1px solid #647797;
+    border-radius: 10px; font: 14px/1.5 system-ui, sans-serif;
+}
+.h3-template-dialog::backdrop { background: #000a; }
+.h3-template-dialog * { box-sizing: border-box; }
+.h3-template-dialog .h3-template-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.h3-template-dialog h2, .h3-template-dialog h3 { margin: 0; }
+.h3-template-dialog button, .h3-template-dialog input, .h3-template-dialog textarea {
+    background: #262e3e; color: #e8edf5; border: 1px solid #596881;
+    border-radius: 5px; padding: 8px 10px; font: inherit; min-width: 0;
+}
+.h3-template-dialog button { cursor: pointer; }
+.h3-template-dialog button:hover { background: #37445d; }
+.h3-template-dialog button:disabled { opacity: .55; cursor: default; }
+.h3-template-dialog :focus-visible { outline: 2px solid #a8caff; outline-offset: 2px; }
+.h3-template-form { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+.h3-template-form textarea, .h3-template-form p, .h3-template-form div, .h3-template-form button { grid-column: 1 / -1; }
+.h3-template-form textarea { resize: vertical; }
+.h3-template-dialog .h3-template-muted { color: #a9b5c9; font-size: 12px; }
+.h3-template-message { color: #ffc879; white-space: pre-wrap; overflow-wrap: anywhere; }
+.h3-template-list { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; max-height: 220px; overflow: auto; }
+.h3-template-list button { text-align: left; overflow-wrap: anywhere; }
+.h3-template-preview { border-top: 1px solid #465069; padding-top: 12px; overflow-wrap: anywhere; }
+.h3-template-preview:empty { display: none; }
+.h3-template-preview p { white-space: pre-wrap; }
+.h3-template-prompt { white-space: pre-wrap; max-height: 240px; overflow: auto; padding: 12px; background: #202635; }
+.h3-template-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.h3-template-gallery figure { margin: 0; }
+.h3-template-gallery img { width: 100%; height: 160px; object-fit: contain; background: #202635; }
+.h3-template-gallery figcaption { font-size: 11px; white-space: pre-wrap; }
+.h3-template-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.h3-template-dialog .h3-template-delete { color: #ffb4b4; border-color: #ae6262; }
+.h3-template-delete-confirm { margin-top: 12px; padding: 12px; border: 1px solid #ae6262; border-radius: 5px; }
+.h3-template-delete-confirm button + button { margin-left: 10px; }
+@media (max-width: 520px) { .h3-template-form { grid-template-columns: 1fr; } }
