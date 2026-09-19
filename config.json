@@ -4,9 +4,9 @@
     "baseurl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     "env_key": "DASHSCOPE_API_KEY",
     "models": {
-      "Qwen Plus": "qwen-plus-latest",
-      "Qwen Max": "qwen-max-latest",
-      "Qwen Turbo": "qwen-turbo-latest"
+      "Qwen3.8-Flash": "qwen3.8-flash",
+      "Qwen3.8 Max": "qwen3.8-max",
+      "Qwen3.7 Plus": "qwen3.7-plus"
     }
   },
   {
@@ -14,7 +14,7 @@
     "baseurl": "https://api.deepseek.com",
     "env_key": "DEEPSEEK_API_KEY",
     "models": {
-	  "deepseek-v4-flash": "deepseek-v4-flash",
+	  "deepseek-flash": "deepseek-flash",
 	  "deepseek-v4-pro": "deepseek-v4-pro"
     }
   },
@@ -24,8 +24,8 @@
     "env_key": "XAI_API_KEY",
     "models": {
       "Grok 4-1": "grok-4-1-fast-reasoning",
-      "Grok 4-3": "grok-4.3-latest",
-      "Grok 4-5": "grok-4.5-latest"
+      "Grok 4-5": "grok-4.5",
+      "Grok 4-6": "grok-4.6"
 
     }
   },
@@ -36,9 +36,10 @@
     "models": {
       "GPT-4o": "gpt-4o",
       "GPT-4o Mini": "gpt-4o-mini",      
-	  "GPT-5": "gpt-5",
-	  "GPT-5 Mini": "gpt-5-mini",
-      "GPT-5 Nano": "gpt-5-nano"
+	  "GPT-5.6 Sol": "gpt-5.6-sol",
+	  "GPT-5.6 Terra": "gpt-5.6-terra",
+      "GPT-5.6 Luna": "gpt-5.6-luna",
+      "GPT-6 Astra": "gpt-6-astra"
     }
   }
 ]

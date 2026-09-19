@@ -24,6 +24,7 @@ Zestaw 16 węzłów (Custom Nodes) do ComfyUI: edycja promptów MiniMax H3, inte
     *   **Źródła składni**: oficjalne poradniki MiniMax [T2VA / klatki kluczowe](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/base-en.txt) i [Ref2VA](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/ref-en.txt), sprawdzone 2026-09-09. Opisują zalecany format rozbudowanego promptu; node pozwala też swobodnie pisać zwykły tekst.
 *   **Alibaba Wan2.1/Qwen Image Gen** (`QwenImageGenNode`): Wysyła prompt do API generowania obrazów DashScope. Pozwala wybrać model, proporcje i seed; zwraca obraz oraz oryginalny prompt. Wymaga `DASHSCOPE_API_KEY`. Pole `negative_prompt` jest obecnie widoczne, ale nie jest przesyłane do API.
 *   **Universal LLM Node**: Wszechstronny węzeł obsługujący wielu dostawców (OpenAI, DeepSeek, X.AI/Grok, Alibaba Qwen). Pozwala na generowanie tekstu i chat wewnątrz ComfyUI. Konfiguracja odbywa się przez `config.json`.
+    *   **Ustawienia generowania**: opcjonalny `reasoning_effort`, większy zakres `max_tokens` oraz formaty `text`, `json_object` i `json_schema`. Parametry są dobierane do dostawcy i modelu; `auto`/`text` zachowują domyślne działanie starszych workflowów. [Obsługiwane modele, ograniczenia i przykład JSON Schema](docs/universal_llm.md).
 *   **Qwen/Wan Resolution Selector** (`QwenWanResolutionNode`): Wybierz preset proporcji i rozdzielczości. Wyjścia `width`, `height` i `text_info` zawierają szerokość, wysokość i opis wybranego ustawienia.
 
 ### 🧪 Testowanie LoRA (LoRA Testing)
@@ -124,6 +125,7 @@ A collection of 16 ComfyUI nodes for MiniMax H3 prompt editing, LLM integration,
     *   **Clipboard**: **📋** replaces the entire prompt with clipboard text; Ctrl+Z undoes the change. An empty clipboard leaves the prompt intact. If clipboard access is blocked (for example over LAN HTTP), the editor selects the prompt and asks for Ctrl+V / ⌘V.
 *   **Alibaba Wan2.1/Qwen Image Gen** (`QwenImageGenNode`): Calls the DashScope image generation API with a prompt, model, aspect ratio, and seed; returns the image and original prompt. Requires `DASHSCOPE_API_KEY`. The current `negative_prompt` field is not forwarded to the API.
 *   **Universal LLM Node**: A versatile node supporting multiple providers (OpenAI, DeepSeek, X.AI/Grok, Alibaba Qwen). Allows for text generation and chat capabilities directly within ComfyUI. Configurable via `config.json`.
+    *   **Generation controls**: optional `reasoning_effort`, a larger `max_tokens` range, and `text`, `json_object`, or `json_schema` output. Parameters are adapted to each provider/model; `auto`/`text` preserve the default behavior of existing workflows. [Supported models, limitations, and a JSON Schema example (Polish)](docs/universal_llm.md).
 *   **Qwen/Wan Resolution Selector** (`QwenWanResolutionNode`): Select an aspect-ratio/resolution preset to obtain `width`, `height`, and a `text_info` description.
 
 ### 🧪 LoRA Testing Tools
