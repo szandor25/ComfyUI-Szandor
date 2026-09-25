@@ -159,6 +159,65 @@ try {
     assert.equal(await evaluate("widget.value"), "Changed while waiting");
     assert.equal(await evaluate("document.querySelector('.h3-paste').disabled"), false);
 
+    // File drops replace the prompt, stay local to the editor, and survive serialization.
+    await evaluate(`
+      window.pageDrops = 0;
+      document.addEventListener('drop', () => window.pageDrops++);
+      window.dropFiles = (files, target = widget.inputEl) => {
+        const dataTransfer = new DataTransfer();
+        for (const file of files) dataTransfer.items.add(file);
+        const over = new DragEvent('dragover', { bubbles:true, cancelable:true, dataTransfer });
+        target.dispatchEvent(over);
+        const drop = new DragEvent('drop', { bubbles:true, cancelable:true, dataTransfer });
+        target.dispatchEvent(drop);
+        return { over:over.defaultPrevented, drop:drop.defaultPrevented };
+      };
+      widget.value = 'Before file drop';
+    `);
+    const droppedText = "  [Shot 1] Zażółć gęślą jaźń 🖤\n<Subject 1> says <d>[Polish] Cześć!</d>\n";
+    assert.deepEqual(await evaluate(`dropFiles([new File([${JSON.stringify(droppedText.replaceAll("\n", "\r\n"))}], 'prompt.TXT', {type:'text/plain'})])`), { over:true, drop:true });
+    await settle();
+    assert.equal(await evaluate("widget.serializeValue()"), droppedText);
+    assert.equal(await evaluate("pageDrops"), 0);
+    assert.ok(await evaluate("document.querySelector('.h3-highlight .h3-reference') !== null"));
+    assert.equal(await evaluate(`(() => {
+      const saved = JSON.parse(JSON.stringify({ widgets_values:[widget.serializeValue()] }));
+      const copy = makeNode(); copy.widgets[0].value = saved.widgets_values[0];
+      const value = copy.widgets[0].serializeValue(); copy.widgets[0].onRemove(); return value;
+    })()`), droppedText);
+    await evaluate("widget.inputEl.focus()");
+    await cdp("Input.dispatchKeyEvent", { type:"keyDown", key:"z", code:"KeyZ", modifiers:2, windowsVirtualKeyCode:90 });
+    await cdp("Input.dispatchKeyEvent", { type:"keyUp", key:"z", code:"KeyZ", modifiers:2, windowsVirtualKeyCode:90 });
+    assert.equal(await evaluate("widget.value"), "Before file drop");
+    for (const files of ["[new File([''], 'empty.txt')]", "[new File(['ignored'], 'image.png')]", "[new File(['one'], 'one.txt'), new File(['two'], 'two.txt')]"]) {
+        await evaluate(`dropFiles(${files}, node.element)`);
+        await settle();
+        assert.equal(await evaluate("widget.value"), "Before file drop");
+        assert.equal(await evaluate("document.querySelector('.h3-clipboard-status').hidden"), false);
+    }
+    await evaluate(`
+      window.originalFileText = File.prototype.text;
+      File.prototype.text = () => new Promise(resolve => window.finishFile = resolve);
+      dropFiles([new File([''], 'slow.txt')]);
+      widget.value = 'Edited during read'; finishFile('stale file');
+    `);
+    await settle();
+    assert.equal(await evaluate("widget.value"), "Edited during read");
+    await evaluate(`
+      dropFiles([new File([''], 'first.txt')]); window.finishFirstFile = finishFile;
+      dropFiles([new File([''], 'second.txt')]);
+      finishFile('newest file');
+    `);
+    await settle();
+    await evaluate("finishFirstFile('older file')");
+    await settle();
+    assert.equal(await evaluate("widget.value"), "newest file");
+    await evaluate("File.prototype.text = async () => { throw new Error('read failed'); }; dropFiles([new File([''], 'failed.txt')])");
+    await settle();
+    assert.equal(await evaluate("widget.value"), "newest file");
+    assert.match(await evaluate("document.querySelector('.h3-clipboard-status').textContent"), /Nie udało się/);
+    await evaluate("File.prototype.text = originalFileText");
+
     await evaluate("widget.value = '<d>[Polish] Niedomknięty dialog';");
     assert.equal(await evaluate("document.querySelector('.h3-status').disabled"), false);
     await evaluate("document.querySelector('.h3-status').click()");
@@ -243,7 +302,7 @@ try {
     await evaluate("widget.onRemove()");
     assert.equal(await evaluate("document.querySelectorAll('.szandor-h3-editor').length"), 0);
     assert.deepEqual(errors, []);
-    console.log("PASS: native input, clipboard replacement + undo/failure/empty/race, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
+    console.log("PASS: native input, clipboard replacement + undo/failure/empty/race, TXT drops + Unicode/CRLF/undo/serialization/empty/invalid/multiple/race/failure, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
 } finally {
     chrome.kill();
     await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));

@@ -81,7 +81,8 @@ export function createEditor(node, name, inputData) {
     input.autocomplete = "off";
     input.setAttribute("autocapitalize", "off");
     input.wrap = "soft";
-    input.placeholder = "Wpisz lub wklej prompt…\n\n(S1) says: <d>[Polish] Cześć!</d>";
+    input.placeholder = "Wpisz, wklej prompt lub przeciągnij plik .txt…\n\n(S1) says: <d>[Polish] Cześć!</d>";
+    input.title = "Przeciągnij jeden plik .txt, aby zastąpić cały prompt.";
     input.value = inputData?.[1]?.default ?? "";
     templates.addEventListener("click", () => openTemplates(node, () => input.value));
     surface.append(mirror, input);
@@ -156,6 +157,59 @@ export function createEditor(node, name, inputData) {
     root.addEventListener("wheel", event => event.stopPropagation(), { passive: true });
     root.addEventListener("dblclick", event => event.stopPropagation());
 
+    function replacePrompt(text) {
+        input.focus({ preventScroll: true });
+        input.select();
+        // Native insertion keeps replacement in the textarea's undo history.
+        const inserted = document.execCommand?.("insertText", false, text);
+        if (!inserted) {
+            input.setRangeText(text, 0, input.value.length, "end");
+            changed();
+        }
+        scheduleRender();
+    }
+
+    let fileRead = 0;
+    root.addEventListener("dragover", event => {
+        if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = "copy";
+    });
+    root.addEventListener("drop", async event => {
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (!files.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const request = ++fileRead;
+        const report = text => {
+            clipboardStatus.textContent = text;
+            clipboardStatus.hidden = false;
+        };
+        if (files.length !== 1 || !/\.txt$/i.test(files[0].name)) {
+            report("Przeciągnij jeden plik .txt z promptem.");
+            return;
+        }
+        const previous = input.value;
+        clipboardStatus.hidden = true;
+        try {
+            const text = await files[0].text();
+            if (disposed || request !== fileRead) return;
+            if (input.value !== previous) {
+                report("Prompt zmienił się podczas odczytu. Przeciągnij plik ponownie, aby go zastąpić.");
+                return;
+            }
+            if (!text) {
+                report("Plik jest pusty. Prompt pozostał bez zmian.");
+                return;
+            }
+            replacePrompt(text);
+            report(`Wczytano: ${files[0].name}`);
+        } catch {
+            if (!disposed && request === fileRead) report("Nie udało się odczytać pliku. Przeciągnij go ponownie.");
+        }
+    });
+
     paste.addEventListener("mousedown", event => event.preventDefault());
     paste.addEventListener("click", async () => {
         if (paste.disabled) return;
@@ -175,15 +229,7 @@ export function createEditor(node, name, inputData) {
                 clipboardStatus.hidden = false;
                 return;
             }
-            input.focus({ preventScroll: true });
-            input.select();
-            // Native insertion keeps replacement in the textarea's undo history.
-            const inserted = document.execCommand?.("insertText", false, text);
-            if (!inserted) {
-                input.setRangeText(text, 0, input.value.length, "end");
-                changed();
-            }
-            scheduleRender();
+            replacePrompt(text);
         } catch {
             if (disposed) return;
             input.focus({ preventScroll: true });
