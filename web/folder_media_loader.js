@@ -279,7 +279,12 @@ function createPanel(node, initialDirectory) {
         if (!info) return;
         const fps = numberValue("fps", 24);
         const frames = Math.round(info.time * fps);
-        timeEl.textContent = `⏱ ${formatTime(info.time)} (${info.time_source}) · ${frames} kl.`;
+        const range = info.range_in_json && Number.isFinite(info.start_time) && Number.isFinite(info.end_time)
+            ? ` · ${formatTime(info.start_time)} → ${formatTime(info.end_time)}`
+            : "";
+        timeEl.textContent = `⏱ ${formatTime(info.time)} (${info.time_source}) · ${frames} kl.${range}`;
+        timeEl.title = `start_time: ${formatTime(info.start_time)}, end_time: ${formatTime(info.end_time)}`
+            + (info.range_in_json ? "" : " (brak w JSON — wartości domyślne)");
         const prompt = info.prompt ?? "";
         promptEl.textContent = prompt || "(brak promptu)";
         promptEl.classList.toggle("fml-empty", !prompt);

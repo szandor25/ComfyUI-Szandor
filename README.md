@@ -45,12 +45,34 @@ Zestaw 18 węzłów (Custom Nodes) do ComfyUI: edycja promptów MiniMax H3, inte
 *   **Image Passthrough (Szandor)** (`ImagePassthrough`): Rozdzielacz 1–30 par gniazd `in_N` → `out_N`. Ustaw `slot_count` i podłącz obrazy do odpowiednich wejść; aktywne, podłączone obrazy przechodzą bez zmian. Niepodłączone wyjścia zwracają czarny obraz 8 × 8.
 *   **Folder Media + Prompt Loader (Szandor)** (`SzandorFolderMediaLoader`): Wczytuje z katalogu obraz, wideo lub audio razem z promptem i czasem. Pliki łączone są po nazwie bez rozszerzenia, np. `ujecie01.png` + `ujecie01.txt` albo `ujecie01.mp4` + `ujecie01.json` (+ opcjonalnie `ujecie01.wav`). Pozycją jest każda nazwa z plikiem mediów lub promptem, sortowana naturalnie (2 przed 10).
     *   **Prompt i czas**: `.txt` zawiera sam prompt (UTF-8). `.json` ma postać `{"time": 5, "prompt": "…"}`; `time` przyjmuje sekundy (`5`, `"5.5s"`) lub `"mm:ss"`. Prompt z JSON ma pierwszeństwo przed `.txt`. Bez `time` czas to długość wideo, potem audio, a na końcu `default_time`. Źródło czasu widać w podglądzie.
+    *   **start_time / end_time (opcjonalne)**: JSON może zawierać np. `{"start_time": 2, "end_time": "00:07.5", "prompt": "…"}` (ten sam format co `time`). Brak pól niczego nie psuje: `start_time` = 0, a `end_time` = `start_time + time`. Gdy JSON ma oba pola, a nie ma `time`, czas = `end_time − start_time`. Błędna wartość lub `end_time` mniejszy od `start_time` daje ostrzeżenie w podglądzie, ale nie zatrzymuje workflow. Wartości trafiają tylko na wyjścia — node nie przycina wideo ani audio.
+    *   **Format pliku JSON**: jeden obiekt w UTF-8, nazwany tak jak plik mediów (`ujecie01.mp4` → `ujecie01.json`). Wszystkie pola są opcjonalne; nieznane pola są ignorowane.
+
+        | Pole | Zamienniki | Typ | Gdy brak |
+        |---|---|---|---|
+        | `prompt` | `text`, `positive` | tekst | prompt z `ujecie01.txt`, inaczej pusty |
+        | `time` | `duration`, `seconds`, `czas` | czas | `end_time − start_time`, potem długość wideo/audio, potem `default_time` |
+        | `start_time` | `start`, `time_start` | czas | `0` |
+        | `end_time` | `end`, `time_end` | czas | `start_time + time` |
+
+        Czas to liczba sekund (`5`, `2.5`) albo tekst: `"5"`, `"5s"`, `"2,5 sek"`, `"00:07.5"` (mm:ss), `"0:01:02.5"` (h:mm:ss). Pełny przykład:
+
+        ```json
+        {
+          "start_time": "00:02",
+          "end_time": 7.5,
+          "time": 5.5,
+          "prompt": "Wide shot of a foggy harbor at dawn, slow dolly-in. (S1) says: <d>[Polish] Dzień dobry!</d>"
+        }
+        ```
+
+        Minimalne warianty: `{"time": 5, "prompt": "…"}` (bez zakresu: `start_time` = 0, `end_time` = 5) albo `{"start_time": 2, "end_time": 7, "prompt": "…"}` (czas wyliczony: 5 s). Znaki nowej linii w prompcie zapisuj jako `\n`.
     *   **Seed**: wybiera pozycję (`indeks = seed mod liczba pozycji`). Pod nim standardowe `control_after_generate`: `fixed` (stała), `increment` (+1), `decrement` (−1), `randomize` (losowa) — po każdym uruchomieniu kolejki. Strzałki ◀ ▶ w nodzie ustawiają seed.
-    *   **Wyjścia**: `image` (obraz albo pierwsza klatka wideo; czarny 64×64 dla samego audio/promptu), `video` (typ `VIDEO`), `audio` (plik audio, inaczej ścieżka dźwiękowa wideo, inaczej cisza o długości `time`), `prompt`, `time` (s), `frames` (= `time × fps`), `seed`, `filename`, `index`, `count`. Podłączone wyjście `video` przy pozycji bez wideo zgłasza błąd — wtedy ustaw `media_filter = wideo`.
+    *   **Wyjścia**: `image` (obraz albo pierwsza klatka wideo; czarny 64×64 dla samego audio/promptu), `video` (typ `VIDEO`), `audio` (plik audio, inaczej ścieżka dźwiękowa wideo, inaczej cisza o długości `time`), `prompt`, `time` (s), `frames` (= `time × fps`), `seed`, `filename`, `index`, `count`, `start_time`, `end_time` (s). Podłączone wyjście `video` przy pozycji bez wideo zgłasza błąd — wtedy ustaw `media_filter = wideo`.
     *   **Podgląd**: obraz lub pierwsza klatka wideo (przycisk **▶ wideo** odtwarza plik), odtwarzacz audio, znaczniki plików, rozdzielczość, czas i prompt. Pokazuje pozycję, która zostanie wczytana w następnym uruchomieniu; pasek stanu podaje ostatnio wczytaną. Lista odświeża się sama co 5 s po zmianie plików.
     *   **Cały folder naraz**: przycisk **⏭ Wszystkie (N)** po potwierdzeniu ustawia seed na 0 i tryb `increment`, a następnie dodaje do kolejki N zadań — po jednym na każdą pozycję.
     *   **Ustawienia**: katalog, filtr, czasy, tryb seeda i rozmiar noda zapisują się w workflow; ostatnie ustawienia i historia katalogów (🕘) są też pamiętane w przeglądarce i używane przy dodawaniu nowego noda. Podgląd dopasowuje się do rozmiaru noda.
-*   **Save As Source Name (Szandor)** (`SzandorSaveAsSource`): Opcjonalny zapis wyniku pod nazwą pozycji z loadera. Podłącz `filename` z **Folder Media + Prompt Loader**, a do wejść `image`, `video`, `audio`, `prompt` (i ewentualnie `time`) wyniki workflow. Powstają np. `ujecie01.png`, `ujecie01.mp4`, `ujecie01.wav` oraz `ujecie01.txt` — albo `ujecie01.json` z `time` i `prompt`, gdy podłączony jest też `time`, więc wynik można znów wczytać loaderem. Przełącznik `enabled` wyłącza zapis bez rozłączania. `output_directory`: puste = `ComfyUI/output/szandor_folder_media`, ścieżka względna liczona od `ComfyUI/output`. `suffix` dopisuje tekst do nazwy (np. `_gen`). `on_exists`: `numeruj` (cały komplet dostaje wspólny numer `_2`, `_3`…), `nadpisz` lub `pomiń`. Batch obrazów zapisuje się jako `nazwa_0001.png`, `nazwa_0002.png`…; audio jako 16-bit WAV (maks. 2 kanały).
+*   **Save As Source Name (Szandor)** (`SzandorSaveAsSource`): Opcjonalny zapis wyniku pod nazwą pozycji z loadera. Podłącz `filename` z **Folder Media + Prompt Loader**, a do wejść `image`, `video`, `audio`, `prompt` (i ewentualnie `time`, `start_time`, `end_time`) wyniki workflow. Powstają np. `ujecie01.png`, `ujecie01.mp4`, `ujecie01.wav` oraz `ujecie01.txt` — albo `ujecie01.json` z promptem i podłączonymi czasami, gdy podłączony jest któryś z nich, więc wynik można znów wczytać loaderem. Przełącznik `enabled` wyłącza zapis bez rozłączania. `output_directory`: puste = `ComfyUI/output/szandor_folder_media`, ścieżka względna liczona od `ComfyUI/output`. `suffix` dopisuje tekst do nazwy (np. `_gen`). `on_exists`: `numeruj` (cały komplet dostaje wspólny numer `_2`, `_3`…), `nadpisz` lub `pomiń`. Batch obrazów zapisuje się jako `nazwa_0001.png`, `nazwa_0002.png`…; audio jako 16-bit WAV (maks. 2 kanały).
 *   **Szandor Auto Crop** (`SzandorAutoCrop`): Przycina obraz lub batch do wybranych proporcji, z pozycją `center`, `top/left` albo `bottom/right` i wymaganą podzielnością wymiarów przez 64, 32, 16 lub 8. Podłącz `image`, wybierz ustawienia i odbierz przycięty `image`. Nie skaluje obrazu; jeśli obraz jest za mały dla wybranych proporcji i podzielności, używa wymiarów mieszczących się w źródle, więc proporcje mogą się różnić.
 *   **Multi Image Loader**: Zaawansowany węzeł do wczytywania wielu obrazów jednocześnie (do 16). Funkcje:
     *   Suwak `image_count` (1–16) – kontroluje liczbę aktywnych slotów i wyjść
@@ -97,6 +119,7 @@ W katalogu zainstalowanego zestawu wykonaj `git pull --ff-only`, następnie zres
 
 ## 📝 Ostatnie zmiany
 
+*   **2026-09-28 — Folder Media Loader: start_time / end_time**: opcjonalne pola w JSON i nowe wyjścia `start_time` / `end_time`; opis formatu JSON z przykładem.
 *   **2026-09-27 — Folder Media + Prompt Loader**: wczytywanie obrazów, wideo i audio z katalogu z promptem `.txt` / `.json` (czas), wyborem pozycji przez seed, responsywnym podglądem i kolejkowaniem całego folderu; opcjonalny zapis wyników pod nazwą źródła (**Save As Source Name**).
 *   **2026-09-09 — Edytor MiniMax H3**: kolorowanie składni, wskazywanie par i błędów dialogów, wstawianie znaczników i szablonów, rozciąganie pola oraz zapis rozmiaru w workflow. Dodano testy składni i test interfejsu w Chromium.
 *   **LoRA Stack — kolumny** (`9a16ac1`): konfigurowalna liczba pozycji na kolumnę, zapisywana w workflow.
@@ -156,11 +179,33 @@ A collection of 18 ComfyUI nodes for MiniMax H3 prompt editing, LLM integration,
 *   **Image Passthrough (Szandor)** (`ImagePassthrough`): Set `slot_count` to expose 1–30 matching `in_N` → `out_N` image pairs. Active connected inputs pass through unchanged; unconnected outputs return an 8 × 8 black image.
 *   **Folder Media + Prompt Loader (Szandor)** (`SzandorFolderMediaLoader`): Loads an image, video, or audio file from a directory together with its prompt and duration. Files are grouped by name without extension, e.g. `shot01.png` + `shot01.txt` or `shot01.mp4` + `shot01.json` (+ optional `shot01.wav`), and sorted naturally.
     *   **Prompt and time**: `.txt` holds the prompt (UTF-8). `.json` looks like `{"time": 5, "prompt": "…"}`; `time` accepts seconds (`5`, `"5.5s"`) or `"mm:ss"`. A JSON prompt takes precedence over `.txt`. Without `time`, the video duration is used, then the audio duration, then `default_time`.
+    *   **start_time / end_time (optional)**: JSON may also contain `start_time` and `end_time` (same formats as `time`). Missing fields are safe: `start_time` = 0 and `end_time` = `start_time + time`; with both present and no `time`, time = `end_time − start_time`. Invalid or reversed values only produce a warning. They are exposed as outputs; media is not trimmed.
+    *   **JSON format**: a single UTF-8 object named after the media file (`shot01.mp4` → `shot01.json`). Every field is optional; unknown fields are ignored.
+
+        | Field | Aliases | Type | When missing |
+        |---|---|---|---|
+        | `prompt` | `text`, `positive` | string | prompt from `shot01.txt`, else empty |
+        | `time` | `duration`, `seconds`, `czas` | time | `end_time − start_time`, then video/audio duration, then `default_time` |
+        | `start_time` | `start`, `time_start` | time | `0` |
+        | `end_time` | `end`, `time_end` | time | `start_time + time` |
+
+        A time is a number of seconds (`5`, `2.5`) or a string: `"5"`, `"5s"`, `"00:07.5"` (mm:ss), `"0:01:02.5"` (h:mm:ss). Full example:
+
+        ```json
+        {
+          "start_time": "00:02",
+          "end_time": 7.5,
+          "time": 5.5,
+          "prompt": "Wide shot of a foggy harbor at dawn, slow dolly-in."
+        }
+        ```
+
+        Minimal variants: `{"time": 5, "prompt": "…"}` (no range: `start_time` = 0, `end_time` = 5) or `{"start_time": 2, "end_time": 7, "prompt": "…"}` (time computed as 5 s). Write line breaks in the prompt as `\n`.
     *   **Seed**: selects the entry (`index = seed mod count`) with the standard `control_after_generate` modes: fixed, increment, decrement, randomize. The ◀ ▶ arrows set the seed.
-    *   **Outputs**: `image` (image or first video frame; black 64×64 for audio/prompt-only entries), `video` (`VIDEO`), `audio` (audio file, else the video's soundtrack, else silence of length `time`), `prompt`, `time`, `frames` (`time × fps`), `seed`, `filename`, `index`, `count`. A connected `video` output raises an error for entries without video — use `media_filter = wideo`.
+    *   **Outputs**: `image` (image or first video frame; black 64×64 for audio/prompt-only entries), `video` (`VIDEO`), `audio` (audio file, else the video's soundtrack, else silence of length `time`), `prompt`, `time`, `frames` (`time × fps`), `seed`, `filename`, `index`, `count`, `start_time`, `end_time`. A connected `video` output raises an error for entries without video — use `media_filter = wideo`.
     *   **Whole folder**: **⏭ Wszystkie (N)** asks for confirmation, sets the seed to 0 and the mode to `increment`, then queues N runs — one per entry.
     *   **Preview and settings**: responsive preview of the image / first video frame (with video and audio playback), file badges, resolution, time, and prompt. Settings and node size persist in the workflow; the latest settings and directory history are also remembered in the browser for new nodes.
-*   **Save As Source Name (Szandor)** (`SzandorSaveAsSource`): Optional saver that names results after the loader entry. Connect `filename` from the loader and any of `image`, `video`, `audio`, `prompt` (plus `time` to write `{time, prompt}` JSON instead of TXT). `enabled` turns saving off without disconnecting. Empty `output_directory` = `ComfyUI/output/szandor_folder_media` (relative paths are under `output`). `on_exists`: number the whole set (`_2`, `_3`…), overwrite, or skip. Image batches become `name_0001.png`…; audio is 16-bit WAV.
+*   **Save As Source Name (Szandor)** (`SzandorSaveAsSource`): Optional saver that names results after the loader entry. Connect `filename` from the loader and any of `image`, `video`, `audio`, `prompt` (plus `time`, `start_time`, `end_time` to write JSON with the connected values instead of TXT). `enabled` turns saving off without disconnecting. Empty `output_directory` = `ComfyUI/output/szandor_folder_media` (relative paths are under `output`). `on_exists`: number the whole set (`_2`, `_3`…), overwrite, or skip. Image batches become `name_0001.png`…; audio is 16-bit WAV.
 *   **Szandor Auto Crop** (`SzandorAutoCrop`): Crops an image or batch to selected proportions, with center/edge alignment and dimension divisibility by 64, 32, 16, or 8. Connect `image`, select the options, and use the cropped `image` output. Does not rescale; images too small for the requested proportions and divisibility fall back to dimensions that fit the source, so the resulting aspect ratio may differ.
 *   **Multi Image Loader**: An advanced node for loading multiple images at once (up to 16). Features:
     *   `image_count` slider (1–16) – controls the number of active slots and output pins
@@ -207,6 +252,7 @@ Run `git pull --ff-only` inside the installed repository, restart ComfyUI, and r
 
 ## 📝 Recent changes
 
+*   **2026-09-28 — Folder Media Loader: start_time / end_time**: optional JSON fields and new `start_time` / `end_time` outputs; documented JSON format with an example.
 *   **2026-09-27 — Folder Media + Prompt Loader**: loads images, video, and audio from a directory with `.txt` / `.json` prompts (with time), seed-driven selection, a responsive preview, and whole-folder queueing; optional saving under the source name (**Save As Source Name**).
 *   **2026-09-09 — MiniMax H3 editor**: syntax highlighting, dialogue pairing and diagnostics, tag/template insertion, resizing, and workflow size persistence. Includes syntax tests and a Chromium UI test.
 *   **LoRA Stack columns** (`9a16ac1`): configurable entries per column, saved in the workflow.

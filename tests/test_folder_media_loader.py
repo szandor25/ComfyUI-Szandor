@@ -91,6 +91,31 @@ class ScanAndPromptTests(unittest.TestCase):
         info = self.m.resolve_item(str(self.dir), {"name": "a", "txt": "a.txt", "json": "a.json"}, 5)
         self.assertEqual((info["prompt"], info["time"], info["time_source"]), ("from json", 7.5, "json"))
 
+    def test_start_end_are_optional_and_default_consistently(self):
+        (self.dir / "a.json").write_text(json.dumps({"time": 4, "prompt": "p"}), encoding="utf-8")
+        info = self.m.resolve_item(str(self.dir), {"name": "a", "json": "a.json"}, 5)
+        self.assertEqual((info["start_time"], info["end_time"], info["range_in_json"]), (0.0, 4.0, False))
+        self.assertIsNone(info["warning"])
+
+    def test_start_end_from_json(self):
+        (self.dir / "b.json").write_text(json.dumps({"start_time": "00:02", "end_time": 7.5, "prompt": "p"}))
+        info = self.m.resolve_item(str(self.dir), {"name": "b", "json": "b.json"}, 5)
+        self.assertEqual((info["start_time"], info["end_time"], info["time"], info["time_source"]),
+                         (2.0, 7.5, 5.5, "json end−start"))
+        (self.dir / "c.json").write_text(json.dumps({"time": 3, "start_time": 10}))
+        info = self.m.resolve_item(str(self.dir), {"name": "c", "json": "c.json"}, 5)
+        self.assertEqual((info["start_time"], info["end_time"], info["time"]), (10.0, 13.0, 3.0))
+
+    def test_bad_or_reversed_range_warns_without_failing(self):
+        (self.dir / "d.json").write_text(json.dumps({"time": 2, "start_time": "abc", "end_time": 1}))
+        info = self.m.resolve_item(str(self.dir), {"name": "d", "json": "d.json"}, 5)
+        self.assertEqual((info["start_time"], info["end_time"], info["time"]), (0.0, 1.0, 2.0))
+        self.assertIn("start_time", info["warning"])
+        (self.dir / "e.json").write_text(json.dumps({"start_time": 8, "end_time": 3}))
+        info = self.m.resolve_item(str(self.dir), {"name": "e", "json": "e.json"}, 5)
+        self.assertEqual((info["time"], info["time_source"]), (5.0, "domyślny"))
+        self.assertIn("mniejszy", info["warning"])
+
     def test_txt_with_bom_and_default_time(self):
         (self.dir / "b.txt").write_bytes("﻿Zażółć\nlinia 2".encode("utf-8"))
         info = self.m.resolve_item(str(self.dir), {"name": "b", "txt": "b.txt"}, 3.5)
@@ -143,12 +168,15 @@ class LoadTests(unittest.TestCase):
         return self.node.load(str(self.dir), seed, media_filter, 5.0, 24.0, prompt=prompt, unique_id="1")["result"]
 
     def test_image_item(self):
-        image, video, audio, prompt, time, frames, seed, name, index, count = self.run_node(0, used=(0, 2, 3))
+        result = self.run_node(0, used=(0, 2, 3))
+        self.assertEqual(len(result), len(self.m.SzandorFolderMediaLoader.RETURN_TYPES))
+        image, video, audio, prompt, time, frames, seed, name, index, count, start, end = result
         self.assertEqual(tuple(image.shape), (1, 16, 32, 3))
         self.assertIsNone(video)
         self.assertEqual(audio["sample_rate"], self.m.SILENCE_SAMPLE_RATE)
         self.assertAlmostEqual(audio["waveform"].shape[-1] / audio["sample_rate"], 5.0)
         self.assertEqual((prompt, time, frames, seed, name, index, count), ("image prompt", 5.0, 120, 0, "01_img", 0, 3))
+        self.assertEqual((start, end), (0.0, 5.0))
 
     def test_video_item_first_frame_audio_track_and_json_time(self):
         image, video, audio, prompt, time, frames, *_ = self.run_node(4)
@@ -170,7 +198,7 @@ class LoadTests(unittest.TestCase):
             self.run_node(0)
 
     def test_filter_changes_count(self):
-        *_, name, index, count = self.run_node(0, media_filter="wideo")
+        *_, name, index, count, _start, _end = self.run_node(0, media_filter="wideo")
         self.assertEqual((name, index, count), ("02_vid", 0, 1))
 
     def test_validate_and_is_changed(self):
@@ -209,6 +237,11 @@ class SaveAsSourceTests(unittest.TestCase):
         self.assertEqual((loaded["sample_rate"], tuple(loaded["waveform"].shape)), (8000, (1, 2, 800)))
         with Image.open(self.out / "ujecie01.png") as img:
             self.assertEqual(img.size, (12, 8))
+
+    def test_json_includes_only_connected_times(self):
+        self.save("r", prompt="p", start_time=1.0, end_time=3.5)
+        self.assertEqual(json.loads((self.out / "r.json").read_text()),
+                         {"start_time": 1.0, "end_time": 3.5, "prompt": "p"})
 
     def test_collisions_number_the_whole_set_or_skip(self):
         (self.out / "a.txt").write_text("old")

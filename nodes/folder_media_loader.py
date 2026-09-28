@@ -48,6 +48,8 @@ PREVIEW_MAX_SIDE = 768
 SILENCE_SAMPLE_RATE = 44100
 
 JSON_TIME_KEYS = ("time", "duration", "seconds", "czas")
+JSON_START_KEYS = ("start_time", "start", "time_start")
+JSON_END_KEYS = ("end_time", "end", "time_end")
 JSON_PROMPT_KEYS = ("prompt", "text", "positive")
 
 # Wyjścia (indeksy muszą zgadzać się z RETURN_TYPES).
@@ -153,29 +155,35 @@ def _read_text(path):
 
 
 def read_prompt(directory, item):
-    """Zwraca (prompt, czas_z_json | None, ostrzeżenie | None). Prompt z JSON ma
+    """Zwraca (prompt, czasy_z_json, ostrzeżenie | None). Czasy to słownik z kluczami
+    time / start_time / end_time; brak pola w JSON daje None. Prompt z JSON ma
     pierwszeństwo przed .txt; pusty prompt w JSON używa pliku .txt."""
-    prompt, time_value, warning = "", None, None
+    prompt = ""
+    times = {"time": None, "start_time": None, "end_time": None}
     if "txt" in item:
         prompt = _read_text(os.path.join(directory, item["txt"]))
-    if "json" in item:
-        try:
-            data = json.loads(_read_text(os.path.join(directory, item["json"])))
-        except (OSError, ValueError) as exc:
-            return prompt, None, f"Niepoprawny JSON {item['json']}: {exc}"
-        if not isinstance(data, dict):
-            return prompt, None, f"{item['json']}: oczekiwano obiektu {{\"time\": …, \"prompt\": …}}"
-        for key in JSON_PROMPT_KEYS:
-            if isinstance(data.get(key), str) and data[key].strip():
-                prompt = data[key]
-                break
-        for key in JSON_TIME_KEYS:
-            if key in data:
-                time_value = parse_time(data[key])
-                if time_value is None:
-                    warning = f"{item['json']}: nie rozpoznano czasu {data[key]!r}"
-                break
-    return prompt, time_value, warning
+    if "json" not in item:
+        return prompt, times, None
+    try:
+        data = json.loads(_read_text(os.path.join(directory, item["json"])))
+    except (OSError, ValueError) as exc:
+        return prompt, times, f"Niepoprawny JSON {item['json']}: {exc}"
+    if not isinstance(data, dict):
+        return prompt, times, f"{item['json']}: oczekiwano obiektu {{\"time\": …, \"prompt\": …}}"
+    for key in JSON_PROMPT_KEYS:
+        if isinstance(data.get(key), str) and data[key].strip():
+            prompt = data[key]
+            break
+    warnings = []
+    for field, keys in (("time", JSON_TIME_KEYS), ("start_time", JSON_START_KEYS), ("end_time", JSON_END_KEYS)):
+        key = next((k for k in keys if k in data and data[k] is not None), None)
+        if key is None:
+            continue
+        times[field] = parse_time(data[key])
+        if times[field] is None:
+            warnings.append(f"nie rozpoznano {key} {data[key]!r}")
+    warning = f"{item['json']}: " + "; ".join(warnings) if warnings else None
+    return prompt, times, warning
 
 
 def media_duration(path):
@@ -194,9 +202,13 @@ def media_duration(path):
 
 
 def resolve_item(directory, item, default_time):
-    """Czas: JSON → długość wideo → długość audio → default_time."""
-    prompt, time_value, warning = read_prompt(directory, item)
-    source = "json"
+    """Czas: JSON time → JSON end_time − start_time → długość wideo → długość audio → default_time.
+    start_time / end_time są opcjonalne: brak start_time daje 0, brak end_time daje start_time + time."""
+    prompt, times, warning = read_prompt(directory, item)
+    start, end = times["start_time"], times["end_time"]
+    time_value, source = times["time"], "json"
+    if time_value is None and start is not None and end is not None and end >= start:
+        time_value, source = end - start, "json end−start"
     if time_value is None:
         for kind in ("video", "audio"):
             if kind in item:
@@ -206,7 +218,18 @@ def resolve_item(directory, item, default_time):
                     break
     if time_value is None:
         time_value, source = float(default_time), "domyślny"
-    return {"prompt": prompt, "time": float(time_value), "time_source": source, "warning": warning}
+    time_value = float(time_value)
+    start_time = float(start) if start is not None else 0.0
+    end_time = float(end) if end is not None else start_time + time_value
+    if end_time < start_time:
+        note = f"end_time ({end_time}) jest mniejszy niż start_time ({start_time})"
+        warning = f"{warning}; {note}" if warning else f"{item.get('json', item['name'])}: {note}"
+    return {
+        "prompt": prompt, "time": time_value, "time_source": source,
+        "start_time": start_time, "end_time": end_time,
+        "range_in_json": start is not None or end is not None,
+        "warning": warning,
+    }
 
 
 def _pil_to_tensor(img):
@@ -318,7 +341,8 @@ async def szandor_folder_media_info(request):
     try:
         info = resolve_item(directory, item, default_time)
     except (OSError, UnicodeDecodeError) as exc:
-        info = {"prompt": "", "time": default_time, "time_source": "domyślny", "warning": str(exc)}
+        info = {"prompt": "", "time": default_time, "time_source": "domyślny", "start_time": 0.0,
+                "end_time": default_time, "range_in_json": False, "warning": str(exc)}
     return web.json_response({**info, "item": item})
 
 
@@ -388,19 +412,24 @@ class SzandorFolderMediaLoader:
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
 
-    RETURN_TYPES = ("IMAGE", "VIDEO", "AUDIO", "STRING", "FLOAT", "INT", "INT", "STRING", "INT", "INT")
-    RETURN_NAMES = ("image", "video", "audio", "prompt", "time", "frames", "seed", "filename", "index", "count")
+    # Nowe wyjścia dopisujemy na końcu, żeby nie przesuwać połączeń w zapisanych workflow.
+    RETURN_TYPES = ("IMAGE", "VIDEO", "AUDIO", "STRING", "FLOAT", "INT", "INT", "STRING", "INT", "INT",
+                    "FLOAT", "FLOAT")
+    RETURN_NAMES = ("image", "video", "audio", "prompt", "time", "frames", "seed", "filename", "index", "count",
+                    "start_time", "end_time")
     OUTPUT_TOOLTIPS = (
         "Obraz lub pierwsza klatka wideo (czarny 64×64, gdy pozycja ma tylko audio/prompt).",
         "Wideo z pliku; błąd, jeśli podłączone, a pozycja nie ma wideo.",
         "Plik audio o tej samej nazwie, w przeciwnym razie ścieżka audio z wideo, a na końcu cisza o długości time.",
         "Prompt z .json (pole prompt) lub z .txt.",
-        "Czas w sekundach: JSON → długość wideo → długość audio → default_time.",
+        "Czas w sekundach: JSON time → JSON end_time − start_time → długość wideo → długość audio → default_time.",
         "round(time × fps).",
         "Użyty seed.",
         "Nazwa pozycji (bez rozszerzenia).",
         "Indeks pozycji (od 0).",
         "Liczba pozycji po filtrze.",
+        "start_time z JSON w sekundach (opcjonalny); gdy brak — 0.",
+        "end_time z JSON w sekundach (opcjonalny); gdy brak — start_time + time.",
     )
     FUNCTION = "load"
     CATEGORY = "Moje Nody/Image"
@@ -445,9 +474,11 @@ class SzandorFolderMediaLoader:
         time_value = info["time"]
         frames = int(round(time_value * fps))
         ui = {"szandor_loaded": [{"name": item["name"], "index": index, "count": len(items),
-                                  "time": time_value, "time_source": info["time_source"]}]}
+                                  "time": time_value, "time_source": info["time_source"],
+                                  "start_time": info["start_time"], "end_time": info["end_time"]}]}
         return {"ui": ui, "result": (image, video, audio, info["prompt"], time_value, frames,
-                                     int(seed), item["name"], index, len(items))}
+                                     int(seed), item["name"], index, len(items),
+                                     info["start_time"], info["end_time"])}
 
     @classmethod
     def IS_CHANGED(cls, directory, seed, media_filter, default_time, fps, **_):
@@ -555,6 +586,8 @@ class SzandorSaveAsSource:
                 "audio": ("AUDIO",),
                 "prompt": ("STRING", {"forceInput": True, "tooltip": "Zapisywany jako .txt (lub .json z time)."}),
                 "time": ("FLOAT", {"forceInput": True, "tooltip": "Z promptem daje .json {time, prompt}."}),
+                "start_time": ("FLOAT", {"forceInput": True, "tooltip": "Opcjonalnie dopisywany do .json."}),
+                "end_time": ("FLOAT", {"forceInput": True, "tooltip": "Opcjonalnie dopisywany do .json."}),
             },
         }
 
@@ -565,7 +598,9 @@ class SzandorSaveAsSource:
     CATEGORY = "Moje Nody/Image"
 
     def save(self, filename, enabled, output_directory, suffix, on_exists, image_format,
-             image=None, video=None, audio=None, prompt=None, time=None):
+             image=None, video=None, audio=None, prompt=None, time=None, start_time=None, end_time=None):
+        timing = {k: float(v) for k, v in (("time", time), ("start_time", start_time), ("end_time", end_time))
+                  if v is not None}
         if not enabled:
             return {"ui": {"text": ["Zapis wyłączony"]}, "result": ("",)}
         stem = safe_basename(filename)
@@ -592,7 +627,7 @@ class SzandorSaveAsSource:
         if audio is not None:
             extensions.append(".wav")
         if prompt is not None:
-            extensions.append(".json" if time is not None else ".txt")
+            extensions.append(".json" if timing else ".txt")
 
         final = choose_stem(directory, stem, extensions, on_exists)
         if final is None:
@@ -621,10 +656,10 @@ class SzandorSaveAsSource:
             save_audio_wav(audio, path)
             saved.append(path)
         if prompt is not None:
-            if time is not None:
+            if timing:
                 path = os.path.join(directory, final + ".json")
                 with open(path, "w", encoding="utf-8") as f:
-                    json.dump({"time": float(time), "prompt": prompt}, f, ensure_ascii=False, indent=2)
+                    json.dump({**timing, "prompt": prompt}, f, ensure_ascii=False, indent=2)
             else:
                 path = os.path.join(directory, final + ".txt")
                 with open(path, "w", encoding="utf-8") as f:
