@@ -9,7 +9,8 @@ const LIST_POLL_MS = 5000;
 const HISTORY_KEY = "szandor.folderMediaLoader.recentDirs";
 const DEFAULTS_KEY = "szandor.folderMediaLoader.defaults";
 const HISTORY_MAX = 12;
-const REMEMBERED = ["media_filter", "default_time", "fps"];
+const REMEMBERED = ["media_filter", "default_time", "fps", "time_output"];
+const TIME_OUTPUT_NAMES = ["time", "start_time", "end_time"];
 const BADGES = [["image", "IMG"], ["video", "VIDEO"], ["audio", "AUDIO"], ["txt", "TXT"], ["json", "JSON"]];
 
 // ─── pamięć w przeglądarce: historia katalogów i ustawienia dla nowych nodów ──
@@ -70,6 +71,38 @@ function query(params) {
 function formatTime(seconds) {
     if (!Number.isFinite(seconds)) return "-";
     return `${Number(seconds.toFixed(3))} s`;
+}
+
+// ─── typ wyjść czasu (liczba / tekst) ────────────────────────────────────────
+
+function acceptsType(inputType, type) {
+    if (!inputType || inputType === "*") return true;
+    return String(inputType).split(",").map(t => t.trim()).includes(type);
+}
+
+// Zawęża wyjścia time / start_time / end_time do FLOAT albo STRING wg przełącznika time_output.
+// Połączenia do wejść, które nie przyjmą nowego typu, są odłączane (inaczej workflow by się wywrócił).
+function applyTimeOutputType(node, mode) {
+    const type = !mode || mode === "liczba" ? "FLOAT" : "STRING";
+    const graph = node.graph;
+    let changed = false;
+    for (const name of TIME_OUTPUT_NAMES) {
+        const slotIndex = node.outputs?.findIndex(o => o.name === name) ?? -1;
+        if (slotIndex < 0) continue;
+        const slot = node.outputs[slotIndex];
+        if (slot.type === type) continue;
+        slot.type = type;
+        changed = true;
+        for (const linkId of [...(slot.links ?? [])]) {
+            const link = graph?.getLink?.(linkId) ?? graph?.links?.[linkId];
+            if (!link) continue;
+            const target = graph.getNodeById(link.target_id);
+            const input = target?.inputs?.[link.target_slot];
+            if (target && !acceptsType(input?.type, type)) node.disconnectOutput(slotIndex, target);
+            else link.type = type;
+        }
+    }
+    if (changed) node.setDirtyCanvas?.(true, true);
 }
 
 // ─── panel ────────────────────────────────────────────────────────────────────
@@ -404,7 +437,14 @@ function createPanel(node, initialDirectory) {
     }
 
     let settingsKey = "";
+    let timeOutputMode = null;
     function watchSettings() {
+        const mode = widgetByName("time_output")?.value;
+        if (mode !== timeOutputMode && node.graph) {
+            timeOutputMode = mode;
+            applyTimeOutputType(node, mode);
+            if (node._szandorFmlReady) saveDefaults();
+        }
         const filter = filterValue();
         const key = `${filter}|${numberValue("default_time", 5)}|${numberValue("fps", 24)}`;
         if (key === settingsKey) return;

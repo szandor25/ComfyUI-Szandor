@@ -133,6 +133,16 @@ class ScanAndPromptTests(unittest.TestCase):
         self.assertEqual([p(5), p("5"), p("5s"), p("2,5 sek"), p("01:02"), p("0:01:00.5")], [5.0, 5.0, 5.0, 2.5, 62.0, 60.5])
         self.assertEqual([p(True), p("abc"), p(-1), p("")], [None, None, None, None])
 
+    def test_format_time(self):
+        f = self.m.format_time
+        self.assertEqual(f(5.5, "liczba"), 5.5)
+        self.assertIsInstance(f(5, "liczba"), float)
+        self.assertEqual([f(5.5, "tekst: sekundy"), f(5, "tekst: sekundy"), f(0.125, "tekst: sekundy")], ["5.5", "5", "0.125"])
+        self.assertEqual(f(65.25, "tekst: mm:ss.mmm"), "01:05.250")
+        self.assertEqual(f(3725.5, "tekst: hh:mm:ss.mmm"), "01:02:05.500")
+        for mode in self.m.TIME_OUTPUTS[1:]:
+            self.assertAlmostEqual(self.m.parse_time(f(3725.5, mode)), 3725.5)
+
     def test_seed_index_wraps(self):
         self.assertEqual([self.m.pick_index(s, 3) for s in (0, 1, 3, 7)], [0, 1, 0, 1])
 
@@ -197,6 +207,13 @@ class LoadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "nie ma pliku wideo"):
             self.run_node(0)
 
+    def test_time_output_as_text(self):
+        (self.dir / "01_img.json").write_text(json.dumps({"start_time": 2, "end_time": 7.5}), encoding="utf-8")
+        result = self.node.load(str(self.dir), 0, "wszystko", 5.0, 24.0, "tekst: mm:ss.mmm",
+                                prompt={}, unique_id="1")["result"]
+        self.assertEqual((result[4], result[5], result[10], result[11]), ("00:05.500", 132, "00:02.000", "00:07.500"))
+        self.assertIn("STRING", self.m.SzandorFolderMediaLoader.RETURN_TYPES[4].split(","))
+
     def test_filter_changes_count(self):
         *_, name, index, count, _start, _end = self.run_node(0, media_filter="wideo")
         self.assertEqual((name, index, count), ("02_vid", 0, 1))
@@ -242,6 +259,12 @@ class SaveAsSourceTests(unittest.TestCase):
         self.save("r", prompt="p", start_time=1.0, end_time=3.5)
         self.assertEqual(json.loads((self.out / "r.json").read_text()),
                          {"start_time": 1.0, "end_time": 3.5, "prompt": "p"})
+
+    def test_json_accepts_text_times(self):
+        self.save("t", prompt="p", time="00:05.500", start_time="2")
+        self.assertEqual(json.loads((self.out / "t.json").read_text()), {"time": 5.5, "start_time": 2.0, "prompt": "p"})
+        with self.assertRaisesRegex(ValueError, "end_time"):
+            self.save("u", prompt="p", end_time="abc")
 
     def test_collisions_number_the_whole_set_or_skip(self):
         (self.out / "a.txt").write_text("old")

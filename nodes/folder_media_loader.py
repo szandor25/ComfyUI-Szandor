@@ -52,6 +52,11 @@ JSON_START_KEYS = ("start_time", "start", "time_start")
 JSON_END_KEYS = ("end_time", "end", "time_end")
 JSON_PROMPT_KEYS = ("prompt", "text", "positive")
 
+# Typ wyjść time / start_time / end_time zależy od przełącznika time_output: backend deklaruje
+# typ łączony (pasuje do wejść FLOAT i STRING), a widżet w przeglądarce zawęża go do jednego.
+TIME_OUTPUT_TYPE = "FLOAT,STRING"
+TIME_OUTPUTS = ["liczba", "tekst: sekundy", "tekst: mm:ss.mmm", "tekst: hh:mm:ss.mmm"]
+
 # Wyjścia (indeksy muszą zgadzać się z RETURN_TYPES).
 OUT_IMAGE, OUT_VIDEO, OUT_AUDIO = 0, 1, 2
 
@@ -147,6 +152,25 @@ def parse_time(value):
             return None
     match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(s|sec|sek|seconds|sekund[y]?)?", text)
     return float(match.group(1)) if match else None
+
+
+def format_time(seconds, mode):
+    """Wartość wyjścia czasu według przełącznika time_output: float albo tekst."""
+    if mode not in TIME_OUTPUTS[1:]:
+        return float(seconds)
+    millis = int(round(float(seconds) * 1000))
+    sign = "-" if millis < 0 else ""
+    millis = abs(millis)
+    if mode == "tekst: sekundy":
+        text = f"{millis // 1000}.{millis % 1000:03d}".rstrip("0").rstrip(".")
+        return sign + text
+    whole, ms = divmod(millis, 1000)
+    if mode == "tekst: mm:ss.mmm":
+        minutes, secs = divmod(whole, 60)
+        return f"{sign}{minutes:02d}:{secs:02d}.{ms:03d}"
+    hours, rest = divmod(whole, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{sign}{hours:02d}:{minutes:02d}:{secs:02d}.{ms:03d}"
 
 
 def _read_text(path):
@@ -408,13 +432,18 @@ class SzandorFolderMediaLoader:
                     "default": 24.0, "min": 1.0, "max": 240.0, "step": 1.0,
                     "tooltip": "Służy tylko do wyliczenia wyjścia frames = round(time × fps).",
                 }),
+                "time_output": (TIME_OUTPUTS, {
+                    "default": TIME_OUTPUTS[0],
+                    "tooltip": "Typ wyjść time, start_time i end_time: liczba (FLOAT, sekundy) albo tekst "
+                               "(STRING): \"5.5\", \"00:05.500\" lub \"00:00:05.500\".",
+                }),
             },
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
         }
 
     # Nowe wyjścia dopisujemy na końcu, żeby nie przesuwać połączeń w zapisanych workflow.
-    RETURN_TYPES = ("IMAGE", "VIDEO", "AUDIO", "STRING", "FLOAT", "INT", "INT", "STRING", "INT", "INT",
-                    "FLOAT", "FLOAT")
+    RETURN_TYPES = ("IMAGE", "VIDEO", "AUDIO", "STRING", TIME_OUTPUT_TYPE, "INT", "INT", "STRING", "INT", "INT",
+                    TIME_OUTPUT_TYPE, TIME_OUTPUT_TYPE)
     RETURN_NAMES = ("image", "video", "audio", "prompt", "time", "frames", "seed", "filename", "index", "count",
                     "start_time", "end_time")
     OUTPUT_TOOLTIPS = (
@@ -422,19 +451,20 @@ class SzandorFolderMediaLoader:
         "Wideo z pliku; błąd, jeśli podłączone, a pozycja nie ma wideo.",
         "Plik audio o tej samej nazwie, w przeciwnym razie ścieżka audio z wideo, a na końcu cisza o długości time.",
         "Prompt z .json (pole prompt) lub z .txt.",
-        "Czas w sekundach: JSON time → JSON end_time − start_time → długość wideo → długość audio → default_time.",
+        "Czas (liczba lub tekst wg time_output): JSON time → JSON end_time − start_time → długość wideo → długość audio → default_time.",
         "round(time × fps).",
         "Użyty seed.",
         "Nazwa pozycji (bez rozszerzenia).",
         "Indeks pozycji (od 0).",
         "Liczba pozycji po filtrze.",
-        "start_time z JSON w sekundach (opcjonalny); gdy brak — 0.",
-        "end_time z JSON w sekundach (opcjonalny); gdy brak — start_time + time.",
+        "start_time z JSON (opcjonalny); gdy brak — 0. Liczba lub tekst wg time_output.",
+        "end_time z JSON (opcjonalny); gdy brak — start_time + time. Liczba lub tekst wg time_output.",
     )
     FUNCTION = "load"
     CATEGORY = "Moje Nody/Image"
 
-    def load(self, directory, seed, media_filter, default_time, fps, prompt=None, unique_id=None):
+    def load(self, directory, seed, media_filter, default_time, fps, time_output=TIME_OUTPUTS[0],
+             prompt=None, unique_id=None):
         directory = (directory or "").strip()
         items = filter_items(scan_directory(directory), media_filter)
         if not items:
@@ -476,9 +506,10 @@ class SzandorFolderMediaLoader:
         ui = {"szandor_loaded": [{"name": item["name"], "index": index, "count": len(items),
                                   "time": time_value, "time_source": info["time_source"],
                                   "start_time": info["start_time"], "end_time": info["end_time"]}]}
-        return {"ui": ui, "result": (image, video, audio, info["prompt"], time_value, frames,
-                                     int(seed), item["name"], index, len(items),
-                                     info["start_time"], info["end_time"])}
+        return {"ui": ui, "result": (image, video, audio, info["prompt"], format_time(time_value, time_output),
+                                     frames, int(seed), item["name"], index, len(items),
+                                     format_time(info["start_time"], time_output),
+                                     format_time(info["end_time"], time_output))}
 
     @classmethod
     def IS_CHANGED(cls, directory, seed, media_filter, default_time, fps, **_):
@@ -585,9 +616,9 @@ class SzandorSaveAsSource:
                 "video": ("VIDEO",),
                 "audio": ("AUDIO",),
                 "prompt": ("STRING", {"forceInput": True, "tooltip": "Zapisywany jako .txt (lub .json z time)."}),
-                "time": ("FLOAT", {"forceInput": True, "tooltip": "Z promptem daje .json {time, prompt}."}),
-                "start_time": ("FLOAT", {"forceInput": True, "tooltip": "Opcjonalnie dopisywany do .json."}),
-                "end_time": ("FLOAT", {"forceInput": True, "tooltip": "Opcjonalnie dopisywany do .json."}),
+                "time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "Z promptem daje .json {time, prompt}. Liczba sekund albo tekst (np. 00:05.5)."}),
+                "start_time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "Opcjonalnie dopisywany do .json. Liczba sekund albo tekst (np. 00:05.5)."}),
+                "end_time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "Opcjonalnie dopisywany do .json. Liczba sekund albo tekst (np. 00:05.5)."}),
             },
         }
 
@@ -599,8 +630,14 @@ class SzandorSaveAsSource:
 
     def save(self, filename, enabled, output_directory, suffix, on_exists, image_format,
              image=None, video=None, audio=None, prompt=None, time=None, start_time=None, end_time=None):
-        timing = {k: float(v) for k, v in (("time", time), ("start_time", start_time), ("end_time", end_time))
-                  if v is not None}
+        timing = {}
+        for key, value in (("time", time), ("start_time", start_time), ("end_time", end_time)):
+            if value is None:
+                continue
+            seconds = parse_time(value)
+            if seconds is None:
+                raise ValueError(f"Nie rozpoznano wartości {key}: {value!r}")
+            timing[key] = seconds
         if not enabled:
             return {"ui": {"text": ["Zapis wyłączony"]}, "result": ("",)}
         stem = safe_basename(filename)
