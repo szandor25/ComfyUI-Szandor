@@ -49,6 +49,20 @@
 .szandor-h3-editor .h3-tag { color: #a1a9b8; }
 .szandor-h3-editor .h3-error { text-decoration: underline wavy #ff7d89; text-underline-offset: 3px; }
 .szandor-h3-editor .h3-paired { background: #38515c; border-radius: 2px; }
+.szandor-h3-editor .h3-suggest[aria-pressed="true"] { border-color: #8bc9ff; }
+.szandor-h3-editor .h3-suggest[aria-pressed="false"] { color: #8490a5; text-decoration: line-through; }
+.szandor-h3-editor .h3-measure { visibility: hidden; pointer-events: none; overflow: hidden; }
+.szandor-h3-editor .h3-completions {
+    position: absolute; z-index: 3; margin: 0; padding: 3px; list-style: none;
+    min-width: 220px; max-width: calc(100% - 8px); max-height: min(220px, calc(100% - 8px)); overflow: auto;
+    background: #1f2533; border: 1px solid #647797; border-radius: 6px; box-shadow: 0 6px 18px #0009;
+    font: 12px system-ui, sans-serif;
+}
+.szandor-h3-editor .h3-completions[hidden] { display: none; }
+.szandor-h3-editor .h3-completions li { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; padding: 4px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+.szandor-h3-editor .h3-completions li[aria-selected="true"] { background: #37445d; }
+.szandor-h3-editor .h3-completion-label { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; color: #e8edf5; overflow: hidden; text-overflow: ellipsis; }
+.szandor-h3-editor .h3-completion-detail { color: #a9b5c9; font-size: 11px; flex-shrink: 0; }
 .szandor-h3-editor .h3-footer { display: flex; align-items: center; flex-shrink: 0; min-height: 27px; border-top: 1px solid #343c4d; }
 .szandor-h3-editor .h3-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 8px; text-align: left; font: 11px system-ui, sans-serif; color: #a9b5c9; background: none; border: 0; }
 .szandor-h3-editor .h3-status:disabled { cursor: default; opacity: 1; }

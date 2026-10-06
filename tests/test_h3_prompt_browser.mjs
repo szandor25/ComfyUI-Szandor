@@ -240,6 +240,66 @@ try {
     assert.equal(await evaluate("document.querySelector('.h3-highlight').clientWidth"), await evaluate("widget.inputEl.clientWidth"));
     assert.ok(await evaluate("Math.abs(document.querySelector('.h3-highlight').scrollHeight - widget.inputEl.scrollHeight) <= 23"));
 
+    // Autocomplete: typed triggers, keyboard selection, undo, mouse, Ctrl+Space and the toggle.
+    const key = async (keyName, code, vk, modifiers = 0) => {
+        await cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", key: keyName, code, windowsVirtualKeyCode: vk, modifiers });
+        await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: keyName, code, windowsVirtualKeyCode: vk, modifiers });
+    };
+    const type = async chars => { for (const ch of chars) await cdp("Input.insertText", { text: ch }); await settle(); };
+    const popup = () => evaluate("(() => { const l=document.querySelector('.h3-completions'); return l.hidden ? null : [...l.querySelectorAll('.h3-completion-label')].map(e=>e.textContent); })()");
+    await evaluate("widget.value = 'A woman <Subject 1> walks.\\n'; widget.inputEl.focus(); widget.inputEl.setSelectionRange(widget.inputEl.value.length, widget.inputEl.value.length)");
+    await type("<Sub");
+    assert.deepEqual((await popup()).slice(0, 2), ["<Subject 1>", "<Subject 2>"]);
+    assert.equal(await evaluate("widget.inputEl.getAttribute('aria-expanded')"), "true");
+    const inside = await evaluate(`(() => { const s=document.querySelector('.h3-surface').getBoundingClientRect(), l=document.querySelector('.h3-completions').getBoundingClientRect();
+      return l.left >= s.left - 1 && l.right <= s.right + 1 && l.top >= s.top - 1 && l.bottom <= s.bottom + 1; })()`);
+    assert.ok(inside, "popup stays inside the editor surface");
+    await key("ArrowDown", "ArrowDown", 40);
+    await key("Enter", "Enter", 13);
+    await settle();
+    assert.equal(await evaluate("widget.value"), "A woman <Subject 1> walks.\n<Subject 2>");
+    assert.equal(await popup(), null);
+    await key("z", "KeyZ", 90, 2);
+    assert.equal(await evaluate("widget.value"), "A woman <Subject 1> walks.\n<Sub");
+    await evaluate("widget.value = ''; widget.inputEl.focus()");
+    await type("The camera pa");
+    await key("Tab", "Tab", 9);
+    await type("w");
+    assert.ok((await popup()).includes("with large amplitude"));
+    await key("Escape", "Escape", 27);
+    assert.equal(await popup(), null);
+    await type("i");
+    assert.equal(await evaluate("widget.value"), "The camera pans left wi");
+    await evaluate("widget.value = 'The kids (S1) hi\\n(S2) s'; widget.inputEl.focus(); widget.inputEl.setSelectionRange(99,99)");
+    await key(" ", "Space", 32, 2);
+    await settle();
+    await evaluate("[...document.querySelectorAll('.h3-completions li')].find(li => li.textContent.includes('voiceover')).click()");
+    await settle();
+    assert.equal(await evaluate("widget.value"), "The kids (S1) hi\n(S2) says in an off-screen voiceover: <d>[Polish] </d> while the character's lips remain completely closed.");
+    assert.equal(await evaluate("widget.inputEl.selectionStart"), "The kids (S1) hi\n(S2) says in an off-screen voiceover: <d>[Polish] ".length);
+    await type("Tak.");
+    assert.equal(await popup(), null);
+    assert.equal(await evaluate("document.querySelector('.h3-status').disabled"), true, "accepted dialogue has no diagnostics");
+    await evaluate("widget.value = 'summary: '; widget.inputEl.focus(); widget.inputEl.setSelectionRange(99,99)");
+    await type("[");
+    assert.equal((await popup())[0], "[keyframe completion]");
+    if (process.env.H3_SCREENSHOT) {
+        const shot = await cdp("Page.captureScreenshot", { format: "png" });
+        await writeFile(process.env.H3_SCREENSHOT.replace(/\.png$/i, "-autocomplete.png"), Buffer.from(shot.data, "base64"));
+    }
+    await evaluate("document.querySelector('.h3-suggest').click()");
+    assert.equal(await popup(), null);
+    assert.equal(await evaluate("node.properties.szandorH3Autocomplete"), false);
+    assert.equal(await evaluate("document.querySelector('.h3-suggest').getAttribute('aria-pressed')"), "false");
+    await type("vid");
+    assert.equal(await popup(), null, "disabled autocomplete stays closed while typing");
+    await key(" ", "Space", 32, 2);
+    await settle();
+    assert.ok((await popup()).includes("[video editing]"), "Ctrl+Space works while disabled");
+    await key("Escape", "Escape", 27);
+    await evaluate("document.querySelector('.h3-suggest').click(); widget.inputEl.blur()");
+    assert.equal(await evaluate("node.properties.szandorH3Autocomplete"), true);
+
     // Resize through the visible grip at a non-unit canvas zoom.
     await evaluate("node.element.style.transformOrigin='top left'; node.element.style.transform='scale(0.75)'");
     const grip = await evaluate("(() => { const r=document.querySelector('.h3-grip').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()");
@@ -313,7 +373,7 @@ try {
     await evaluate("widget.onRemove()");
     assert.equal(await evaluate("document.querySelectorAll('.szandor-h3-editor').length"), 0);
     assert.deepEqual(errors, []);
-    console.log("PASS: native input, clipboard replacement + undo/failure/empty/race, TXT/JSON drops + Unicode/CRLF/BOM/prompt keys/undo/serialization/empty/invalid/multiple/race/failure, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
+    console.log("PASS: native input, autocomplete (typing, keys, mouse, undo, Ctrl+Space, toggle), clipboard replacement + undo/failure/empty/race, TXT/JSON drops + Unicode/CRLF/BOM/prompt keys/undo/serialization/empty/invalid/multiple/race/failure, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
 } finally {
     chrome.kill();
     await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));

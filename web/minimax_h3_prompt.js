@@ -1,11 +1,13 @@
 import { app } from "../../scripts/app.js";
-import { analyzePrompt, highlightPrompt, SNIPPETS } from "./h3_prompt_syntax.js";
+import { analyzePrompt, highlightPrompt, SNIPPET_GROUPS, SNIPPETS } from "./h3_prompt_syntax.js";
+import { createAutocomplete } from "./h3_autocomplete.js";
 import { openTemplates } from "./h3_templates.js";
 
 const NODE_TYPE = "SzandorMiniMaxH3Prompt";
 const MIN_SIZE = [360, 300];
 const DEFAULT_SIZE = [640, 480];
 const SIZE_PROPERTY = "szandorH3EditorSize";
+const AUTOCOMPLETE_PROPERTY = "szandorH3Autocomplete";
 
 function installStyles() {
     if (document.getElementById("szandor-h3-prompt-style")) return;
@@ -48,14 +50,23 @@ export function createEditor(node, name, inputData) {
     const toolbar = element("div", "h3-toolbar");
     const snippets = element("select", "h3-snippets");
     snippets.setAttribute("aria-label", "Znacznik lub szablon do wstawienia");
-    for (const [id, label] of SNIPPETS) {
-        const option = element("option", "", label);
-        option.value = id;
-        snippets.append(option);
+    for (const [groupLabel, items] of SNIPPET_GROUPS) {
+        const group = element("optgroup");
+        group.label = groupLabel;
+        for (const [id, label] of items) {
+            const option = element("option", "", label);
+            option.value = id;
+            group.append(option);
+        }
+        snippets.append(group);
     }
     const insert = element("button", "h3-button", "Wstaw");
     insert.type = "button";
     insert.title = "Wstaw w miejscu kursora; dialog obejmie zaznaczony tekst. Ctrl+Z cofa zmianę.";
+    const suggest = element("button", "h3-button h3-suggest", "Podpowiedzi");
+    suggest.type = "button";
+    suggest.title = "Podpowiadaj znaczniki podczas pisania (<, [, (, nazwy sekcji, ruchy kamery). Ctrl+Spacja działa zawsze.";
+    const autocompleteEnabled = () => node.properties?.[AUTOCOMPLETE_PROPERTY] !== false;
     const help = element("button", "h3-button", "Składnia");
     help.type = "button";
     help.setAttribute("aria-expanded", "false");
@@ -66,7 +77,7 @@ export function createEditor(node, name, inputData) {
     paste.type = "button";
     paste.title = "Wklej prompt ze schowka — zastępuje całą treść. Ctrl+Z cofa zmianę.";
     paste.setAttribute("aria-label", "Wklej prompt ze schowka");
-    toolbar.append(snippets, insert, paste, help, templates);
+    toolbar.append(snippets, insert, suggest, paste, help, templates);
     const clipboardStatus = element("p", "h3-clipboard-status");
     clipboardStatus.hidden = true;
     clipboardStatus.setAttribute("role", "status");
@@ -80,6 +91,7 @@ export function createEditor(node, name, inputData) {
         ["boundary", "<scenetrans> — dialog przez cięcie (po obu stronach); <cutoff> — urwany przez koniec filmu. Nie wymagają zamknięcia."],
         ["section", "Opis sceny pisz po angielsku; dialog, śpiew i tekst na ekranie zachowują swój język. Szablony wymagają uzupełnienia."],
         ["tag", "Szare znaczniki są nierozpoznane przez edytor. Pozostają w tekście. Podpowiedzi nie blokują generowania."],
+        ["speaker", "Podpowiedzi: wpisz <, [ lub (, początek nazwy sekcji w nowej linii, słowo po „camera” / „shot” / (S1) albo relację po „<Subject 1> …:”. Ctrl+Spacja pokazuje też frazy kamery, cięć i ciągłości dla bieżącego słowa. ↑↓ wybór, Enter / Tab wstawia, Esc zamyka."],
     ]) guide.append(element("p", `h3-${kind}`, label));
     const source = element("a", "", "Oficjalny poradnik MiniMax H3 ↗");
     source.href = "https://github.com/MiniMax-AI/MiniMax-H3/tree/main/skills/h3-prompt-writing/references";
@@ -126,7 +138,8 @@ export function createEditor(node, name, inputData) {
         analysis = analyzePrompt(input.value);
         mirror.innerHTML = highlightPrompt(input.value, analysis, input.selectionStart);
         const count = analysis.issues.length;
-        status.textContent = count ? `⚠ ${count} uwag — ${analysis.issues[issueIndex % count].message}` : "<d> dialog · [ ] ujęcie / język · < > referencje";
+        status.textContent = count ? `⚠ ${count} uwag — ${analysis.issues[issueIndex % count].message}` : "<d> dialog · [ ] ujęcie / język · < > referencje · Ctrl+Spacja podpowiedzi";
+        suggest.setAttribute("aria-pressed", String(autocompleteEnabled()));
         status.classList.toggle("h3-has-issues", count > 0);
         status.disabled = !count;
         status.title = count ? "Kliknij, aby zaznaczyć kolejną uwagę. " + analysis.issues.map(i => i.message).join("\n") : "Kolory oznaczają składnię; tekst trafia bez zmian na wyjście prompt.";
@@ -160,6 +173,7 @@ export function createEditor(node, name, inputData) {
         node.setDirtyCanvas?.(true, true);
     };
     input.addEventListener("input", changed);
+    const autocomplete = createAutocomplete({ input, container: surface, enabled: autocompleteEnabled, onFallbackEdit: changed });
     input.addEventListener("input", () => { clipboardStatus.hidden = true; });
     input.addEventListener("scroll", syncScroll);
     input.addEventListener("click", scheduleRender);
@@ -279,6 +293,15 @@ export function createEditor(node, name, inputData) {
         input.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
         scheduleRender();
     });
+    suggest.addEventListener("mousedown", event => event.preventDefault());
+    suggest.addEventListener("click", () => {
+        node.properties ??= {};
+        node.properties[AUTOCOMPLETE_PROPERTY] = !autocompleteEnabled();
+        suggest.setAttribute("aria-pressed", String(autocompleteEnabled()));
+        if (!autocompleteEnabled()) autocomplete.close();
+        node.graph?.change?.();
+        scheduleRender();
+    });
     help.addEventListener("click", () => {
         guide.hidden = !guide.hidden;
         help.setAttribute("aria-expanded", String(!guide.hidden));
@@ -327,6 +350,7 @@ export function createEditor(node, name, inputData) {
         disposed = true;
         cancelAnimationFrame(frame);
         observer.disconnect();
+        autocomplete.dispose();
         endDrag();
         return originalRemove?.apply(this, args);
     };
