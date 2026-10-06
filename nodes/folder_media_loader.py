@@ -336,6 +336,88 @@ def _find_item(directory, name):
     return next((i for i in scan_directory(directory) if i["name"] == name), None)
 
 
+DEFAULT_DROP_SUBDIR = "szandor_folder_media"
+
+
+def default_drop_directory():
+    """Katalog dla plików upuszczonych na node bez wybranego katalogu: <input>/szandor_folder_media."""
+    base = folder_paths.get_input_directory() if folder_paths else os.getcwd()
+    return os.path.join(base, DEFAULT_DROP_SUBDIR)
+
+
+def _same_content(path, data):
+    try:
+        if os.path.getsize(path) != len(data):
+            return False
+        with open(path, "rb") as f:
+            return f.read() == data
+    except OSError:
+        return False
+
+
+def import_dropped(directory, files):
+    """Kopiuje upuszczone pliki (lista (nazwa, bajty)) do katalogu, grupując je po nazwie bez rozszerzenia.
+
+    Plik identyczny z już istniejącym nie jest kopiowany — pozycja zostaje tylko wybrana, więc
+    przeciągnięcie obrazu z tego katalogu pokazuje też jego JSON (i odwrotnie). Gdy nazwa jest zajęta
+    przez inny plik (inna treść albo inne rozszerzenie tego samego rodzaju), cała grupa dostaje
+    wspólny numer _2, _3…, żeby nie podmienić ani nie rozdzielić istniejącego kompletu.
+    Zwraca {"names": [...], "saved": [...], "renamed": {stara: nowa}, "skipped": [...]}."""
+    os.makedirs(directory, exist_ok=True)
+    groups, skipped = {}, []
+    for filename, data in files:
+        name = safe_basename(filename)
+        kind = _kind(name)
+        stem, ext = os.path.splitext(name)
+        if kind is None or not stem:
+            skipped.append(filename)
+            continue
+        # Dwa pliki tego samego rodzaju w jednej grupie: liczy się pierwszy, jak w scan_directory.
+        if kind in groups.setdefault(stem, {}):
+            skipped.append(filename)
+            continue
+        groups[stem][kind] = (ext, data)
+
+    existing = {item["name"]: item for item in scan_directory(directory)}
+
+    def fits(stem, group):
+        item = existing.get(stem, {})
+        for kind, (ext, data) in group.items():
+            path = os.path.join(directory, stem + ext)
+            if item.get(kind, stem + ext) != stem + ext:
+                return False
+            if os.path.exists(path) and not _same_content(path, data):
+                return False
+        return True
+
+    def free(stem, group):
+        return stem not in existing and not any(
+            os.path.exists(os.path.join(directory, stem + ext)) for ext, _ in group.values())
+
+    names, saved, renamed = [], [], {}
+    for stem in sorted(groups, key=_natural_key):
+        group = groups[stem]
+        target = stem
+        if not fits(stem, group):
+            counter = 2
+            while not free(f"{stem}_{counter}", group):
+                counter += 1
+            target = f"{stem}_{counter}"
+            renamed[stem] = target
+        for kind, (ext, data) in group.items():
+            path = os.path.join(directory, target + ext)
+            if os.path.exists(path):
+                continue  # identyczny plik już jest
+            with open(path, "wb") as f:
+                f.write(data)
+            saved.append(target + ext)
+        item = existing.setdefault(target, {"name": target})
+        for kind, (ext, _) in group.items():
+            item.setdefault(kind, target + ext)
+        names.append(target)
+    return {"names": names, "saved": saved, "renamed": renamed, "skipped": skipped}
+
+
 # ─── API dla widżetu ──────────────────────────────────────────────────────────
 
 @PromptServer.instance.routes.get("/szandor/folder-media/list")
@@ -406,6 +488,36 @@ async def szandor_folder_media_file(request):
     if path is None:
         raise web.HTTPNotFound(text="Nie znaleziono pliku w katalogu.")
     return web.FileResponse(path=path, headers={"Cache-Control": "no-cache"})
+
+
+@PromptServer.instance.routes.post("/szandor/folder-media/drop")
+async def szandor_folder_media_drop(request):
+    """Pliki przeciągnięte na node (multipart: directory + file…). Pusty katalog → <input>/szandor_folder_media."""
+    # Nazwy przychodzą osobnymi polami "name" (przed każdym "file"): nagłówek filename bywa
+    # kodowany procentowo, co psułoby polskie znaki w nazwach.
+    directory, files, names, file_parts = "", [], [], 0
+    reader = await request.multipart()
+    async for part in reader:
+        if part.name == "directory":
+            directory = (await part.text()).strip()
+        elif part.name == "name":
+            names.append(await part.text())
+        elif part.name == "file":
+            filename = names[file_parts] if file_parts < len(names) else part.filename
+            file_parts += 1
+            if filename:
+                files.append((filename, bytes(await part.read())))
+    if not files:
+        return web.json_response({"error": "Brak plików."}, status=400)
+    # Wpisany katalog musi istnieć (literówka nie tworzy nowego folderu); domyślny powstaje w razie potrzeby.
+    if directory and not os.path.isdir(directory):
+        return web.json_response({"error": f"Katalog nie istnieje: {directory}"}, status=400)
+    directory = directory or default_drop_directory()
+    try:
+        result = import_dropped(directory, files)
+    except OSError as exc:
+        return web.json_response({"error": f"Nie udało się zapisać plików: {exc}"}, status=500)
+    return web.json_response({**result, "directory": directory})
 
 
 # ─── node ─────────────────────────────────────────────────────────────────────

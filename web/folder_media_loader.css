@@ -5,6 +5,7 @@
     color: #dce3ee; font: 12px system-ui, sans-serif;
 }
 .szandor-fml * { box-sizing: border-box; }
+.szandor-fml.fml-dragover { border-color: #a8caff; box-shadow: inset 0 0 0 2px #a8caff66; }
 .szandor-fml button, .szandor-fml select, .szandor-fml input {
     border: 1px solid #4b5670; border-radius: 4px; background: #262e3e;
     color: #e8edf5; padding: 4px 7px; font: inherit; min-width: 0;

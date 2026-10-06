@@ -189,12 +189,23 @@ try {
     await cdp("Input.dispatchKeyEvent", { type:"keyDown", key:"z", code:"KeyZ", modifiers:2, windowsVirtualKeyCode:90 });
     await cdp("Input.dispatchKeyEvent", { type:"keyUp", key:"z", code:"KeyZ", modifiers:2, windowsVirtualKeyCode:90 });
     assert.equal(await evaluate("widget.value"), "Before file drop");
-    for (const files of ["[new File([''], 'empty.txt')]", "[new File(['ignored'], 'image.png')]", "[new File(['one'], 'one.txt'), new File(['two'], 'two.txt')]"]) {
+    for (const files of ["[new File([''], 'empty.txt')]", "[new File(['ignored'], 'image.png')]", "[new File(['one'], 'one.txt'), new File(['two'], 'two.txt')]",
+        "[new File(['{nope'], 'bad.json')]", "[new File(['[1]'], 'list.json')]", "[new File(['{\"time\":5,\"prompt\":\"  \"}'], 'blank.json')]"]) {
         await evaluate(`dropFiles(${files}, node.element)`);
         await settle();
         assert.equal(await evaluate("widget.value"), "Before file drop");
         assert.equal(await evaluate("document.querySelector('.h3-clipboard-status').hidden"), false);
     }
+    // JSON drops insert only the prompt field (also with a BOM, a fallback key, or an image dropped alongside).
+    const jsonPrompt = "[Shot 1] Mgła nad portem\n(S1) says: <d>[Polish] Dzień dobry!</d>";
+    await evaluate(`dropFiles([new File([${JSON.stringify("﻿" + JSON.stringify({ time: 5, start_time: 1, prompt: jsonPrompt }))}], 'shot01.JSON')])`);
+    await settle();
+    assert.equal(await evaluate("widget.value"), jsonPrompt);
+    assert.match(await evaluate("document.querySelector('.h3-clipboard-status').textContent"), /shot01\.JSON/);
+    await evaluate(`dropFiles([new File(['png'], 'shot02.png'), new File([${JSON.stringify(JSON.stringify({ prompt: "", text: "From text key" }))}], 'shot02.json')])`);
+    await settle();
+    assert.equal(await evaluate("widget.value"), "From text key");
+    await evaluate("widget.value = 'Before file drop'");
     await evaluate(`
       window.originalFileText = File.prototype.text;
       File.prototype.text = () => new Promise(resolve => window.finishFile = resolve);
@@ -302,7 +313,7 @@ try {
     await evaluate("widget.onRemove()");
     assert.equal(await evaluate("document.querySelectorAll('.szandor-h3-editor').length"), 0);
     assert.deepEqual(errors, []);
-    console.log("PASS: native input, clipboard replacement + undo/failure/empty/race, TXT drops + Unicode/CRLF/undo/serialization/empty/invalid/multiple/race/failure, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
+    console.log("PASS: native input, clipboard replacement + undo/failure/empty/race, TXT/JSON drops + Unicode/CRLF/BOM/prompt keys/undo/serialization/empty/invalid/multiple/race/failure, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
 } finally {
     chrome.kill();
     await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));

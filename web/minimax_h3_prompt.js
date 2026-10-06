@@ -23,6 +23,21 @@ function element(tag, className, text) {
     return el;
 }
 
+// Te same pola co w Folder Media + Prompt Loader: prompt, text, positive (pierwsze niepuste).
+const JSON_PROMPT_KEYS = ["prompt", "text", "positive"];
+
+export function promptFromJson(content) {
+    let data;
+    try {
+        data = JSON.parse(content.replace(/^﻿/, ""));
+    } catch {
+        return null;
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+    const key = JSON_PROMPT_KEYS.find(k => typeof data[k] === "string" && data[k].trim());
+    return key ? data[key] : null;
+}
+
 function validSize(size) {
     return size?.length === 2 && Array.from(size).every(v => Number.isFinite(v) && v > 0);
 }
@@ -81,8 +96,8 @@ export function createEditor(node, name, inputData) {
     input.autocomplete = "off";
     input.setAttribute("autocapitalize", "off");
     input.wrap = "soft";
-    input.placeholder = "Wpisz, wklej prompt lub przeciągnij plik .txt…\n\n(S1) says: <d>[Polish] Cześć!</d>";
-    input.title = "Przeciągnij jeden plik .txt, aby zastąpić cały prompt.";
+    input.placeholder = "Wpisz, wklej prompt lub przeciągnij plik .txt / .json…\n\n(S1) says: <d>[Polish] Cześć!</d>";
+    input.title = "Przeciągnij plik .txt lub .json (pole prompt), aby zastąpić cały prompt.";
     input.value = inputData?.[1]?.default ?? "";
     templates.addEventListener("click", () => openTemplates(node, () => input.value));
     surface.append(mirror, input);
@@ -186,15 +201,23 @@ export function createEditor(node, name, inputData) {
             clipboardStatus.textContent = text;
             clipboardStatus.hidden = false;
         };
-        if (files.length !== 1 || !/\.txt$/i.test(files[0].name)) {
-            report("Przeciągnij jeden plik .txt z promptem.");
+        // Obraz przeciągnięty razem ze swoim JSON-em jest pomijany — liczy się jeden plik z promptem.
+        const promptFiles = files.filter(file => /\.(txt|json)$/i.test(file.name));
+        if (promptFiles.length !== 1) {
+            report("Przeciągnij jeden plik .txt lub .json z promptem.");
             return;
         }
+        const [file] = promptFiles;
         const previous = input.value;
         clipboardStatus.hidden = true;
         try {
-            const text = await files[0].text();
+            const content = await file.text();
             if (disposed || request !== fileRead) return;
+            const text = /\.json$/i.test(file.name) ? promptFromJson(content) : content;
+            if (text === null) {
+                report("Plik JSON nie zawiera pola prompt (ani text / positive). Prompt pozostał bez zmian.");
+                return;
+            }
             if (input.value !== previous) {
                 report("Prompt zmienił się podczas odczytu. Przeciągnij plik ponownie, aby go zastąpić.");
                 return;
@@ -204,7 +227,7 @@ export function createEditor(node, name, inputData) {
                 return;
             }
             replacePrompt(text);
-            report(`Wczytano: ${files[0].name}`);
+            report(`Wczytano: ${file.name}`);
         } catch {
             if (!disposed && request === fileRead) report("Nie udało się odczytać pliku. Przeciągnij go ponownie.");
         }

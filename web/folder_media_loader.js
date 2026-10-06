@@ -12,6 +12,11 @@ const HISTORY_MAX = 12;
 const REMEMBERED = ["media_filter", "default_time", "fps", "time_output"];
 const TIME_OUTPUT_NAMES = ["time", "start_time", "end_time"];
 const BADGES = [["image", "IMG"], ["video", "VIDEO"], ["audio", "AUDIO"], ["txt", "TXT"], ["json", "JSON"]];
+const DROP_EXTENSIONS = /\.(png|jpe?g|webp|bmp|gif|tiff?|mp4|webm|mov|mkv|avi|m4v|gifv|wav|mp3|flac|ogg|m4a|aac|opus|txt|json)$/i;
+
+function hasFiles(event) {
+    return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
 
 // ─── pamięć w przeglądarce: historia katalogów i ustawienia dla nowych nodów ──
 
@@ -182,7 +187,10 @@ function createPanel(node, initialDirectory) {
         info: null,
         lastLoaded: null,
         listRequest: 0,
+        listFilter: "",
         itemRequest: 0,
+        dropRequest: 0,
+        notice: null,
         objectUrl: null,
         disposed: false,
         queueing: false,
@@ -211,7 +219,7 @@ function createPanel(node, initialDirectory) {
     function setDirectory(value, { remember = true } = {}) {
         const directory = (value ?? "").trim();
         dirInput.value = directory;
-        if (directory === state.directory) return;
+        if (directory === state.directory) return Promise.resolve();
         state.directory = directory;
         if (remember && directory) {
             pushHistory(directory);
@@ -220,7 +228,7 @@ function createPanel(node, initialDirectory) {
         }
         widget?.callback?.(directory);
         node.graph?.change?.();
-        reloadList();
+        return reloadList();
     }
 
     function setSeed(value) {
@@ -234,6 +242,7 @@ function createPanel(node, initialDirectory) {
     }
 
     function step(delta) {
+        state.notice = null;
         const count = state.items.length;
         if (!count) return;
         setSeed(((state.index + delta) % count + count) % count);
@@ -242,6 +251,7 @@ function createPanel(node, initialDirectory) {
     async function reloadList() {
         const request = ++state.listRequest;
         const directory = state.directory;
+        state.listFilter = filterValue();
         if (!directory) {
             Object.assign(state, { items: [], signature: "", exists: false });
             dirInput.classList.remove("fml-missing");
@@ -251,7 +261,7 @@ function createPanel(node, initialDirectory) {
         }
         status.textContent = "Wczytywanie listy…";
         try {
-            const res = await api.fetchApi(`/szandor/folder-media/list?${query({ directory, filter: filterValue() })}`);
+            const res = await api.fetchApi(`/szandor/folder-media/list?${query({ directory, filter: state.listFilter })}`);
             const data = res.ok ? await res.json() : { items: [], exists: false };
             if (state.disposed || request !== state.listRequest) return;
             state.items = data.items ?? [];
@@ -381,6 +391,9 @@ function createPanel(node, initialDirectory) {
         status.classList.toggle("fml-warn", !!warning);
         if (warning) {
             status.textContent = `⚠ ${warning}`;
+        } else if (state.notice) {
+            status.textContent = state.notice.text;
+            status.classList.toggle("fml-warn", !!state.notice.warn);
         } else if (state.lastLoaded) {
             const l = state.lastLoaded;
             status.textContent = `Ostatnio wczytany: ${l.name} (${l.index + 1}/${l.count}) · ${formatTime(l.time)}`;
@@ -426,7 +439,7 @@ function createPanel(node, initialDirectory) {
                 promptEl.classList.add("fml-empty");
                 counter.textContent = state.directory ? "brak plików" : "—";
                 showPlaceholder("📁", !state.directory
-                    ? "Wpisz ścieżkę katalogu z obrazami, wideo, audio i promptami (.txt / .json)"
+                    ? "Wpisz ścieżkę katalogu z obrazami, wideo, audio i promptami (.txt / .json) albo przeciągnij tu pliki"
                     : state.exists ? "Brak pasujących plików w katalogu" : "Katalog nie istnieje");
                 renderStatus();
             } else {
@@ -448,7 +461,7 @@ function createPanel(node, initialDirectory) {
         const filter = filterValue();
         const key = `${filter}|${numberValue("default_time", 5)}|${numberValue("fps", 24)}`;
         if (key === settingsKey) return;
-        const filterChanged = settingsKey && settingsKey.split("|")[0] !== filter;
+        const filterChanged = settingsKey && settingsKey.split("|")[0] !== filter && filter !== state.listFilter;
         const timeChanged = settingsKey && !filterChanged;
         settingsKey = key;
         if (filterChanged) reloadList();
@@ -509,6 +522,77 @@ function createPanel(node, initialDirectory) {
     });
     next.addEventListener("click", () => step(1));
 
+    // Przeciągnięte pliki trafiają na serwer: identyczny plik z katalogu tylko wybiera swoją pozycję
+    // (razem z JSON / obrazem o tej samej nazwie), nowe pliki są kopiowane do katalogu.
+    function notify(text, warn = false) {
+        state.notice = { text, warn };
+        renderStatus();
+    }
+
+    async function importFiles(files) {
+        const accepted = files.filter(f => DROP_EXTENSIONS.test(f.name));
+        if (!accepted.length) {
+            notify("⚠ Przeciągnij obraz, wideo, audio albo plik .json / .txt.", true);
+            return;
+        }
+        const request = ++state.dropRequest;
+        notify(`Wczytywanie ${accepted.length === 1 ? accepted[0].name : `${accepted.length} plików`}…`);
+        const body = new FormData();
+        body.append("directory", state.directory);
+        for (const file of accepted) {
+            body.append("name", file.name);
+            body.append("file", file, file.name);
+        }
+        try {
+            const res = await api.fetchApi("/szandor/folder-media/drop", { method: "POST", body });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            if (state.disposed || request !== state.dropRequest) return;
+            await (data.directory !== state.directory ? setDirectory(data.directory) : reloadList());
+            if (state.disposed || request !== state.dropRequest) return;
+            const name = data.names?.[0];
+            let index = state.items.findIndex(item => item.name === name);
+            const filter = widgetByName("media_filter");
+            if (index < 0 && filter && filter.value !== "wszystko") {
+                filter.value = "wszystko";
+                filter.callback?.(filter.value);
+                await reloadList();
+                index = state.items.findIndex(item => item.name === name);
+            }
+            const parts = [];
+            if (data.saved?.length) parts.push(`Dodano: ${data.saved.join(", ")}`);
+            else parts.push(`Wybrano: ${name}`);
+            const renamed = Object.entries(data.renamed ?? {});
+            if (renamed.length) parts.push(`nazwa zajęta → ${renamed.map(([a, b]) => `${a} jako ${b}`).join(", ")}`);
+            if (data.skipped?.length) parts.push(`pominięto: ${data.skipped.join(", ")}`);
+            if (data.names?.length > 1) parts.push(`${data.names.length} pozycje`);
+            notify(parts.join(" · "), !!(renamed.length || data.skipped?.length));
+            if (index >= 0) setSeed(index);
+        } catch (err) {
+            if (request === state.dropRequest) notify(`⚠ Nie udało się wczytać plików: ${err?.message ?? err}`, true);
+        }
+    }
+
+    root.addEventListener("dragover", event => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = "copy";
+        root.classList.add("fml-dragover");
+    });
+    root.addEventListener("dragleave", event => {
+        if (!root.contains(event.relatedTarget)) root.classList.remove("fml-dragover");
+    });
+    root.addEventListener("drop", event => {
+        root.classList.remove("fml-dragover");
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (!files.length) return;
+        // Bez tego ComfyUI potraktowałby upuszczony PNG jako workflow do otwarcia.
+        event.preventDefault();
+        event.stopPropagation();
+        importFiles(files);
+    });
+
     fillHistory();
     const ticker = setInterval(() => { watchSettings(); tick(); }, TICK_MS);
     const poller = setInterval(pollList, LIST_POLL_MS);
@@ -526,10 +610,12 @@ function createPanel(node, initialDirectory) {
         setDirectory,
         saveDefaults,
         reloadList,
+        importFiles,
         onExecuted(message) {
             const loaded = message?.szandor_loaded?.[0];
             if (!loaded) return;
             state.lastLoaded = loaded;
+            state.notice = null;
             renderStatus();
         },
         dispose() {
@@ -612,6 +698,17 @@ app.registerExtension({
                 this._szandorFmlResizeTimer = setTimeout(() => this._szandorFml?.saveDefaults(), 400);
             }
             return result;
+        };
+
+        // Upuszczenie na część noda rysowaną na kanwie (tytuł, wyjścia, widżety) — panel obsługuje resztę.
+        nodeType.prototype.onDragOver = function (event) {
+            return hasFiles(event);
+        };
+        nodeType.prototype.onDragDrop = async function (event) {
+            const files = Array.from(event.dataTransfer?.files ?? []);
+            if (!files.length || !this._szandorFml) return false;
+            await this._szandorFml.importFiles(files);
+            return true;
         };
 
         const origExecuted = nodeType.prototype.onExecuted;

@@ -23,7 +23,7 @@ except ImportError:
 
 
 def load_node():
-    routes = SimpleNamespace(get=lambda _: lambda handler: handler)
+    routes = SimpleNamespace(get=lambda _: lambda handler: handler, post=lambda _: lambda handler: handler)
     modules = {
         "aiohttp": SimpleNamespace(web=SimpleNamespace()),
         "server": SimpleNamespace(PromptServer=SimpleNamespace(instance=SimpleNamespace(routes=routes))),
@@ -156,6 +156,38 @@ class ScanAndPromptTests(unittest.TestCase):
         self.assertIsNotNone(self.m._resolve_file(str(self.dir), "a.png", self.m.MEDIA_EXTENSIONS))
         self.assertIsNone(self.m._resolve_file(str(self.dir), "secret.txt", self.m.MEDIA_EXTENSIONS))
         self.assertIsNone(self.m._resolve_file(str(self.dir), "../a.png", self.m.MEDIA_EXTENSIONS))
+
+    def test_drop_of_identical_file_selects_existing_item_with_companion(self):
+        (self.dir / "a.png").write_bytes(b"png")
+        (self.dir / "a.json").write_text('{"prompt": "p"}', encoding="utf-8")
+        for dropped in ("a.png", "a.json"):
+            result = self.m.import_dropped(str(self.dir), [(dropped, (self.dir / dropped).read_bytes())])
+            self.assertEqual((result["names"], result["saved"], result["renamed"]), (["a"], [], {}))
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["a.json", "a.png"])
+
+    def test_drop_copies_new_set_and_completes_existing_item(self):
+        (self.dir / "b.json").write_text('{"prompt": "p"}', encoding="utf-8")
+        result = self.m.import_dropped(str(self.dir), [("c.png", b"1"), ("c.json", b"{}"), ("b.png", b"2"),
+                                                       ("notes.md", b""), ("c.jpg", b"3")])
+        self.assertEqual(result["names"], ["b", "c"])
+        self.assertEqual(sorted(result["saved"]), ["b.png", "c.json", "c.png"])
+        self.assertEqual(sorted(result["skipped"]), ["c.jpg", "notes.md"])
+        self.assertEqual(self.m._find_item(str(self.dir), "b"), {"name": "b", "image": "b.png", "json": "b.json"})
+
+    def test_drop_conflict_renames_whole_set(self):
+        (self.dir / "d.png").write_bytes(b"old")
+        (self.dir / "d_2.txt").write_bytes(b"taken")
+        (self.dir / "e.jpg").write_bytes(b"jpg")
+        result = self.m.import_dropped(str(self.dir), [("d.png", b"new"), ("d.json", b"{}"), ("e.png", b"png")])
+        self.assertEqual(result["renamed"], {"d": "d_3", "e": "e_2"})
+        self.assertEqual(sorted(result["saved"]), ["d_3.json", "d_3.png", "e_2.png"])
+        self.assertEqual((self.dir / "d.png").read_bytes(), b"old")
+        self.assertFalse((self.dir / "d.json").exists())
+
+    def test_drop_strips_directories_from_names(self):
+        result = self.m.import_dropped(str(self.dir), [("../evil.png", b"x")])
+        self.assertEqual(result["saved"], ["evil.png"])
+        self.assertTrue((self.dir / "evil.png").exists())
 
 
 @unittest.skipIf(av is None, "PyAV not installed")
