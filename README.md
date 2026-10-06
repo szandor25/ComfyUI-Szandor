@@ -7,7 +7,7 @@
 
 # 🇵🇱 Wersja Polska
 
-Zestaw 18 węzłów (Custom Nodes) do ComfyUI: edycja promptów MiniMax H3, integracje LLM, generowanie obrazów przez API, obsługa LoRA, obrazów i plików tekstowych oraz eksperymentalny reżyser teledysków.
+Zestaw 20 węzłów (Custom Nodes) do ComfyUI: edycja promptów MiniMax H3, integracje LLM, generowanie obrazów przez API, obsługa LoRA, obrazów i plików tekstowych oraz eksperymentalny reżyser teledysków.
 
 ## 📦 Dostępne Węzły
 
@@ -96,6 +96,13 @@ Zestaw 18 węzłów (Custom Nodes) do ComfyUI: edycja promptów MiniMax H3, inte
 *   **Text Directory Loader**: Wczytywanie zawartości plików tekstowych z całego katalogu.
 *   **Text File Picker (Folder)**: Wczytuje prompt z wybranego pliku `.txt` w podanym katalogu, z opcjami sortowania (nazwa/data modyfikacji, rosnąco/malejąco).
 *   **Save Text File**: Prosty zapis wygenerowanych tekstów (np. promptów) do pliku.
+*   **Memory Monitor (Szandor)** (`SzandorMemoryMonitor`, `Moje Nody/Utils`): Panel z pamięcią na żywo — wystarczy dodać go do workflow, nie trzeba niczego podłączać. Działa na Windows i Linux (NVIDIA CUDA, AMD ROCm); bez GPU pokazuje tylko RAM. Odświeżanie ustawiasz przełącznikiem `refresh` (0,5–5 s).
+    *   **Na żywo**: nazwa GPU (obciążenie i temperatura, jeśli dostępne), pasek VRAM podzielony na PyTorch allocated, cache PyTorcha (reserved − allocated) i „inne” (kontekst CUDA, inne programy), wartości Allocated / Reserved / Szczyt / Wolne, RAM systemu i procesu ComfyUI, swap, pamięć przypięta (pinned), tryb pamięci ComfyUI (np. `HIGH_VRAM`, parametry startowe w podpowiedzi) oraz wykres ostatnich minut. W trakcie zadania widać bieżący węzeł: czas, pamięć na starcie, teraz, szczyt i różnicę.
+    *   **Modele**: modele załadowane przez ComfyUI (model dyfuzji, text encoder, VAE, ControlNet, inne) z dtype, rozmiarem i częścią w VRAM; liczba łatek oznacza np. podpięte LoRA. Przycisk ⏏ wyładowuje z VRAM jeden model (razem z jego klonami), przyciski pod tabelą — wszystkie danego rodzaju. Wyładowany model zostaje w RAM, dopóki trzyma go cache ComfyUI, więc kolejne użycie jest szybkie. Węzły z własnym zarządzaniem pamięcią (np. WanVideoWrapper) nie pojawiają się na liście.
+    *   **Uruchomienia**: ostatnie 5 zadań z przeglądarki. Dla każdego wykonanego węzła: pamięć na starcie, szczyt, koniec, różnica, zmiana RAM i czas; węzeł z najwyższym szczytem jest wyróżniony. Miara „PyTorch allocated” daje dokładny szczyt tensorów ComfyUI, „cała karta” — zajętość według sterownika (z innymi programami, próbki co 0,25 s). Wykres pokazuje przebieg zadania z pasmami węzłów; po najechaniu widać węzeł i pamięć w danej chwili, dwuklik w wierszu pokazuje węzeł w grafie. **CSV** zapisuje tabelę (separator `;`, przecinek dziesiętny — otwiera się wprost w polskim Excelu).
+    *   **Przyciski**: *Opróżnij cache CUDA*, *gc + cache*, *Wyładuj wszystko z VRAM*, *Reset szczytu* oraz *Wyczyść cache ComfyUI* (po potwierdzeniu: wyładowuje modele i usuwa zapamiętane wyniki węzłów, zwalniając też RAM; następne uruchomienie wczyta modele z dysku). Wyładowanie i opróżnianie działają tylko przy bezczynnej kolejce — w trakcie zadania służy do tego **Memory Cleanup**.
+    *   **Ograniczenia**: podziału na „attention / aktywacje / latent” nie da się zmierzyć — PyTorch nie oznacza alokacji; zamiast tego mierzona jest różnica przed i po każdym węźle. Pomiar węzłów obejmuje zadania uruchomione z przeglądarki (zadania z API bez `client_id` nie są rejestrowane). Na Windows NVML zwykle nie podaje pamięci pojedynczego procesu, dlatego zajętość karty pochodzi ze sterownika (`torch.cuda.mem_get_info`).
+*   **Memory Cleanup (Szandor)** (`SzandorMemoryCleanup`, `Moje Nody/Utils`): Węzeł przelotowy do wpięcia w dowolne połączenie (`value` przyjmuje i oddaje dane każdego typu bez zmian). Gdy dane wejściowe są gotowe, wyładowuje z VRAM zaznaczone rodzaje modeli (`text_encoders`, `vae`, `diffusion_models`, `controlnets`, `other_models`), opcjonalnie opróżnia cache CUDA (`empty_cache`) i uruchamia `gc_collect`. `clear_cache_after_run` czyści cache ComfyUI po zakończeniu całego zadania. Przykład: `CLIP Text Encode` → **Memory Cleanup** (text encodery) → `positive` w KSamplerze zwalnia text encoder przed samplowaniem. Wyjście `report` (i pole w węźle) podaje, co wyładowano i ile VRAM / RAM zwolniono. Węzeł wykonuje się, gdy zmienią się jego dane wejściowe — przy wyniku z cache nic nie jest zwalniane.
 
 ## ⚙️ Instalacja
 
@@ -121,6 +128,7 @@ W katalogu zainstalowanego zestawu wykonaj `git pull --ff-only`, następnie zres
 
 ## 📝 Ostatnie zmiany
 
+*   **2026-10-06 — Memory Monitor i Memory Cleanup**: panel VRAM / RAM na żywo z listą załadowanych modeli, pomiarem pamięci każdego węzła (tabela, wykres, CSV) i wyładowaniem wybranych modeli; przelotowy węzeł zwalniający pamięć w wybranym miejscu workflow.
 *   **2026-10-06 — Przeciąganie plików**: Folder Media Loader przyjmuje przeciągnięte obrazy, wideo, audio i JSON / TXT (wybiera istniejącą pozycję z kompletem albo kopiuje nowe pliki do katalogu); edytor MiniMax H3 wstawia prompt z przeciągniętego pliku `.json`.
 *   **2026-09-29 — Folder Media Loader: `time_output`**: czasy na wyjściu jako liczba albo tekst (sekundy, mm:ss.mmm, hh:mm:ss.mmm).
 *   **2026-09-28 — Folder Media Loader: start_time / end_time**: opcjonalne pola w JSON i nowe wyjścia `start_time` / `end_time`; opis formatu JSON z przykładem.
@@ -132,7 +140,7 @@ W katalogu zainstalowanego zestawu wykonaj `git pull --ff-only`, następnie zres
 
 ## 🧪 Testy
 
-Z katalogu repozytorium: `python -m unittest discover -s tests -p 'test_*.py'` oraz `node --test tests/test_h3_prompt_syntax.mjs` (Node.js z obsługą modułów ES w plikach `.js`, np. 22.7+). Test przeglądarkowy uruchom przez `CHROME_PATH=/ścieżka/do/chrome node tests/test_h3_prompt_browser.mjs`. Nie wymaga pakietów npm; używa uproszczonego hosta widgetów ComfyUI i nie wykonuje generowania H3.
+Z katalogu repozytorium: `python -m unittest discover -s tests -p 'test_*.py'` oraz `node --test tests/test_h3_prompt_syntax.mjs` (Node.js z obsługą modułów ES w plikach `.js`, np. 22.7+). Testy przeglądarkowe uruchom przez `CHROME_PATH=/ścieżka/do/chrome node tests/test_h3_prompt_browser.mjs` (analogicznie `test_folder_media_browser.mjs` i `test_memory_monitor_browser.mjs`). Nie wymaga pakietów npm; używa uproszczonego hosta widgetów ComfyUI i nie wykonuje generowania H3.
 
 ## 🔑 Konfiguracja
 
@@ -149,7 +157,7 @@ Aby korzystać z węzłów LLM, musisz skonfigurować klucze API.
 
 # 🇬🇧 English Version
 
-A collection of 18 ComfyUI nodes for MiniMax H3 prompt editing, LLM integration, API image generation, LoRAs, images, text files, and an experimental music video director.
+A collection of 20 ComfyUI nodes for MiniMax H3 prompt editing, LLM integration, API image generation, LoRAs, images, text files, and an experimental music video director.
 
 ## 📦 Available Nodes
 
@@ -233,6 +241,13 @@ A collection of 18 ComfyUI nodes for MiniMax H3 prompt editing, LLM integration,
 *   **Text Directory Loader**: Loads the content of text files from a specified directory.
 *   **Text File Picker (Folder)**: Loads a prompt from a selected `.txt` file in a target folder, with sorting options (name/modified date, ascending/descending).
 *   **Save Text File**: Simple node to save generated text (e.g., prompts) to a file.
+*   **Memory Monitor (Szandor)** (`SzandorMemoryMonitor`, `Moje Nody/Utils`): A live memory panel — just add it to the workflow, no connections needed. Works on Windows and Linux (NVIDIA CUDA, AMD ROCm); without a GPU it shows RAM only. Set the refresh rate with `refresh` (0.5–5 s).
+    *   **Live** (`Na żywo`): GPU name (load and temperature when available), a VRAM bar split into PyTorch allocated, PyTorch cache (reserved − allocated) and "other" (CUDA context, other programs), Allocated / Reserved / Peak / Free, system and ComfyUI process RAM, swap, pinned memory, the ComfyUI memory mode (e.g. `HIGH_VRAM`, launch flags in the tooltip) and a chart of the last minutes. While a job runs, the current node is shown with its time and start / current / peak / delta memory.
+    *   **Models** (`Modele`): models loaded by ComfyUI (diffusion model, text encoder, VAE, ControlNet, other) with dtype, size, and the part in VRAM; the patch count indicates e.g. applied LoRAs. ⏏ unloads one model (with its clones) from VRAM; the buttons below unload all models of a kind. Unloaded models stay in RAM while ComfyUI's cache holds them, so reuse is fast. Nodes with their own memory management (e.g. WanVideoWrapper) are not listed.
+    *   **Runs** (`Uruchomienia`): the last 5 jobs queued from the browser. For each executed node: start, peak, end, delta, RAM change, and time; the node with the highest peak is highlighted. "PyTorch allocated" gives the exact tensor peak; "whole card" uses driver-reported usage (including other programs, sampled every 0.25 s). The chart shows the job timeline with node bands; hover to see the node and memory at that moment, double-click a row to show the node in the graph. **CSV** exports the table (`;` separator, decimal comma).
+    *   **Buttons**: empty the CUDA cache, gc + cache, unload everything from VRAM, reset peak, and clear the ComfyUI cache (after confirmation: unloads models and drops cached node outputs, freeing RAM too; the next run reloads models from disk). Unloading and emptying only work while the queue is idle — use **Memory Cleanup** during a job.
+    *   **Limitations**: a breakdown into attention / activations / latents cannot be measured because PyTorch does not label allocations; the panel measures the difference before and after each node instead. Node recording covers jobs queued from the browser (API jobs without a `client_id` are not recorded). On Windows NVML usually cannot report per-process memory, so card usage comes from the driver (`torch.cuda.mem_get_info`).
+*   **Memory Cleanup (Szandor)** (`SzandorMemoryCleanup`, `Moje Nody/Utils`): A pass-through node for any connection (`value` accepts and returns data of any type unchanged). Once its input is ready, it unloads the selected model kinds from VRAM (`text_encoders`, `vae`, `diffusion_models`, `controlnets`, `other_models`), optionally empties the CUDA cache (`empty_cache`) and runs `gc_collect`. `clear_cache_after_run` clears the ComfyUI cache after the whole job finishes. Example: `CLIP Text Encode` → **Memory Cleanup** (text encoders) → KSampler `positive` frees the text encoder before sampling. The `report` output (also shown in the node) lists what was unloaded and how much VRAM / RAM was freed. The node runs when its input changes — a cached result frees nothing.
 
 ## ⚙️ Installation
 
@@ -258,6 +273,7 @@ Run `git pull --ff-only` inside the installed repository, restart ComfyUI, and r
 
 ## 📝 Recent changes
 
+*   **2026-10-06 — Memory Monitor and Memory Cleanup**: live VRAM / RAM panel with loaded models, per-node memory recording (table, chart, CSV) and selective model unloading; a pass-through node that frees memory at a chosen point in the workflow.
 *   **2026-10-06 — Drag and drop**: Folder Media Loader accepts dropped images, video, audio, and JSON / TXT (selects the existing entry with its companions or copies new files into the directory); the MiniMax H3 editor inserts the prompt from a dropped `.json` file.
 *   **2026-09-29 — Folder Media Loader: `time_output`**: time outputs as a number or text (seconds, mm:ss.mmm, hh:mm:ss.mmm).
 *   **2026-09-28 — Folder Media Loader: start_time / end_time**: optional JSON fields and new `start_time` / `end_time` outputs; documented JSON format with an example.
@@ -269,7 +285,7 @@ Run `git pull --ff-only` inside the installed repository, restart ComfyUI, and r
 
 ## 🧪 Tests
 
-From the repository directory, run `python -m unittest discover -s tests -p 'test_*.py'` and `node --test tests/test_h3_prompt_syntax.mjs` (Node.js with ES module detection for `.js`, such as 22.7+). Run the browser test with `CHROME_PATH=/path/to/chrome node tests/test_h3_prompt_browser.mjs`. It requires no npm packages, uses a minimal ComfyUI widget host, and does not run H3 generation.
+From the repository directory, run `python -m unittest discover -s tests -p 'test_*.py'` and `node --test tests/test_h3_prompt_syntax.mjs` (Node.js with ES module detection for `.js`, such as 22.7+). Run the browser tests with `CHROME_PATH=/path/to/chrome node tests/test_h3_prompt_browser.mjs` (likewise `test_folder_media_browser.mjs` and `test_memory_monitor_browser.mjs`). It requires no npm packages, uses a minimal ComfyUI widget host, and does not run H3 generation.
 
 ## 🔑 Configuration
 
