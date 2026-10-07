@@ -41,11 +41,11 @@ REFRESH_CHOICES = ["0.5 s", "1 s", "2 s", "5 s"]
 WATCHED_EVENTS = {"execution_start", "execution_cached", "executing",
                   "execution_success", "execution_error", "execution_interrupted"}
 KIND_LABELS = {
-    "diffusion": "model dyfuzji",
+    "diffusion": "diffusion model",
     "text_encoder": "text encoder",
     "vae": "VAE",
     "controlnet": "ControlNet",
-    "other": "inne",
+    "other": "other",
 }
 POLICY_FLAGS = ("gpu_only", "highvram", "normalvram", "lowvram", "novram", "cpu",
                 "disable_smart_memory", "reserve_vram", "cache_none", "cache_lru", "cache_ram")
@@ -201,7 +201,7 @@ def list_models():
                 "dynamic": bool(_try(patcher.is_dynamic, default=False)),
             })
         except Exception as exc:  # model w trakcie ładowania / nietypowy patcher
-            logging.debug("[Szandor Memory] pominięto model: %s", exc)
+            logging.debug("[Szandor Memory] skipped a model: %s", exc)
     return models
 
 
@@ -411,7 +411,7 @@ def install_hook(server=None):
             try:
                 recorder.on_message(event, data if isinstance(data, dict) else {})
             except Exception as exc:
-                logging.warning("[Szandor Memory] błąd pomiaru (%s): %s", event, exc)
+                logging.warning("[Szandor Memory] recording error (%s): %s", event, exc)
         return original(event, data, sid)
 
     send_sync._szandor_memory = True
@@ -422,7 +422,7 @@ def install_hook(server=None):
 try:
     install_hook()
 except Exception as exc:
-    logging.warning("[Szandor Memory] nie udało się podpiąć pomiaru węzłów: %s", exc)
+    logging.warning("[Szandor Memory] could not hook node recording: %s", exc)
 
 
 # ─── akcje ────────────────────────────────────────────────────────────────────
@@ -445,39 +445,39 @@ def perform_action(action, payload):
     device = gpu_device()
     if action == "reset_peak":
         recorder.reset_peak(device)
-        return {"message": "Wyzerowano szczyt."}
+        return {"message": "Peak reset."}
     if action == "clear_cache":
         PromptServer.instance.prompt_queue.set_flag("free_memory", True)
-        return {"message": "Cache ComfyUI zostanie wyczyszczony, gdy kolejka będzie pusta "
-                           "(modele wczytają się od nowa przy następnym uruchomieniu)."}
+        return {"message": "The ComfyUI cache will be cleared once the queue is empty "
+                           "(models will load again on the next run)."}
     with recorder.action_lock:
         if recorder.busy or _queue_running():
-            raise Busy("Trwa wykonywanie zadania — użyj węzła Memory Cleanup w workflow albo poczekaj.")
+            raise Busy("A job is running — use the Memory Cleanup node in the workflow, or wait.")
         before = snapshot(device)
         if action == "unload_model":
             target = str(payload.get("id") or "")
             names = unload_models(lambda p: str(id(p)) == target)
-            message = f"Wyładowano z VRAM: {', '.join(names)}" if names else "Model nie jest już załadowany."
+            message = f"Unloaded from VRAM: {', '.join(names)}" if names else "The model is no longer loaded."
         elif action == "unload_kind":
             kind = payload.get("kind")
             if kind not in KIND_LABELS:
-                raise ValueError(f"Nieznany rodzaj modelu: {kind}")
+                raise ValueError(f"Unknown model kind: {kind}")
             names = unload_models(lambda p: classify(p) == kind)
-            message = f"Wyładowano z VRAM: {', '.join(names)}" if names else f"Brak załadowanych: {KIND_LABELS[kind]}."
+            message = f"Unloaded from VRAM: {', '.join(names)}" if names else f"Nothing loaded: {KIND_LABELS[kind]}."
         elif action == "unload_all":
             names = unload_models(lambda p: True)
-            message = f"Wyładowano z VRAM: {', '.join(names)}" if names else "Żaden model nie był załadowany."
+            message = f"Unloaded from VRAM: {', '.join(names)}" if names else "No model was loaded."
         elif action == "empty_cache":
             if mm is not None:
                 mm.soft_empty_cache()
-            message = "Opróżniono cache CUDA."
+            message = "Emptied the CUDA cache."
         elif action == "gc":
             collected = gc.collect()
             if mm is not None:
                 mm.soft_empty_cache()
-            message = f"gc.collect(): {collected} obiektów, opróżniono cache CUDA."
+            message = f"gc.collect(): {collected} objects, emptied the CUDA cache."
         else:
-            raise ValueError(f"Nieznana akcja: {action}")
+            raise ValueError(f"Unknown action: {action}")
         after = snapshot(device)
     freed = (before.get("device") or 0) - (after.get("device") or 0)
     return {"message": message, "freed": freed}
@@ -518,7 +518,7 @@ async def szandor_memory_action(request):
     except ValueError as exc:
         return web.json_response({"error": str(exc)}, status=400)
     except Exception as exc:
-        logging.exception("[Szandor Memory] akcja %s", action)
+        logging.exception("[Szandor Memory] action %s", action)
         return web.json_response({"error": f"{type(exc).__name__}: {exc}"}, status=500)
     return web.json_response(result)
 
@@ -531,12 +531,13 @@ class SzandorMemoryMonitor:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
-            "refresh": (REFRESH_CHOICES, {"default": "1 s", "tooltip": "Jak często panel odświeża dane."}),
+            "refresh": (REFRESH_CHOICES, {"default": "1 s", "tooltip": "How often the panel refreshes."}),
         }}
 
     RETURN_TYPES = ()
     FUNCTION = "noop"
-    CATEGORY = "Moje Nody/Utils"
+    CATEGORY = "Szandor/Utils"
+    DESCRIPTION = "Live VRAM / RAM panel with loaded models and per-node memory of recent runs. Needs no connections."
 
     def noop(self, refresh):
         return ()
@@ -553,26 +554,27 @@ class SzandorMemoryCleanup:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "value": (ANY, {"tooltip": "Dowolne dane (np. CONDITIONING, LATENT, IMAGE) — przechodzą bez zmian. "
-                                           "Czyszczenie wykonuje się, gdy są gotowe."}),
-                "text_encoders": ("BOOLEAN", {"default": True, "tooltip": "Wyładuj z VRAM text encodery (CLIP / T5 / Qwen…)."}),
-                "vae": ("BOOLEAN", {"default": False, "tooltip": "Wyładuj z VRAM modele VAE."}),
-                "diffusion_models": ("BOOLEAN", {"default": False, "tooltip": "Wyładuj z VRAM modele dyfuzji (UNet / DiT)."}),
-                "controlnets": ("BOOLEAN", {"default": False, "tooltip": "Wyładuj z VRAM ControlNety."}),
-                "other_models": ("BOOLEAN", {"default": False, "tooltip": "Wyładuj pozostałe modele (np. CLIP Vision, upscalery)."}),
-                "empty_cache": ("BOOLEAN", {"default": True, "tooltip": "Oddaj nieużywaną pamięć z cache PyTorcha (torch.cuda.empty_cache)."}),
-                "gc_collect": ("BOOLEAN", {"default": False, "tooltip": "Uruchom gc.collect() przed opróżnieniem cache."}),
-                "clear_cache_after_run": ("BOOLEAN", {"default": False, "tooltip": "Po zakończeniu całego zadania wyczyść cache "
-                                                                                    "ComfyUI i wyładuj modele (zwalnia też RAM; "
-                                                                                    "następne uruchomienie wczyta modele od nowa)."}),
+                "value": (ANY, {"tooltip": "Any data (e.g. CONDITIONING, LATENT, IMAGE) — passed through unchanged. "
+                                           "Cleanup runs once it is ready."}),
+                "text_encoders": ("BOOLEAN", {"default": True, "tooltip": "Unload text encoders (CLIP / T5 / Qwen…) from VRAM."}),
+                "vae": ("BOOLEAN", {"default": False, "tooltip": "Unload VAE models from VRAM."}),
+                "diffusion_models": ("BOOLEAN", {"default": False, "tooltip": "Unload diffusion models (UNet / DiT) from VRAM."}),
+                "controlnets": ("BOOLEAN", {"default": False, "tooltip": "Unload ControlNets from VRAM."}),
+                "other_models": ("BOOLEAN", {"default": False, "tooltip": "Unload other models (e.g. CLIP Vision, upscalers)."}),
+                "empty_cache": ("BOOLEAN", {"default": True, "tooltip": "Return unused memory from the PyTorch cache (torch.cuda.empty_cache)."}),
+                "gc_collect": ("BOOLEAN", {"default": False, "tooltip": "Run gc.collect() before emptying the cache."}),
+                "clear_cache_after_run": ("BOOLEAN", {"default": False, "tooltip": "After the whole job finishes, clear the ComfyUI "
+                                                                                    "cache and unload models (also frees RAM; "
+                                                                                    "the next run loads models again)."}),
             },
         }
 
     RETURN_TYPES = (ANY, "STRING")
     RETURN_NAMES = ("value", "report")
-    OUTPUT_TOOLTIPS = ("Wejście bez zmian.", "Co zostało zwolnione.")
+    OUTPUT_TOOLTIPS = ("The input, unchanged.", "What was freed.")
     FUNCTION = "cleanup"
-    CATEGORY = "Moje Nody/Utils"
+    CATEGORY = "Szandor/Utils"
+    DESCRIPTION = "Pass-through node: once its input is ready, unloads the selected models and frees memory."
 
     def cleanup(self, value, text_encoders, vae, diffusion_models, controlnets, other_models,
                 empty_cache, gc_collect, clear_cache_after_run):
@@ -589,16 +591,16 @@ class SzandorMemoryCleanup:
             PromptServer.instance.prompt_queue.set_flag("free_memory", True)
         after = snapshot(device)
 
-        lines = [f"Wyładowano: {', '.join(names)}" if names else
-                 ("Wyładowano: nic (żaden zaznaczony model nie był w VRAM)" if kinds else "Wyładowano: nic (nie zaznaczono modeli)")]
+        lines = [f"Unloaded: {', '.join(names)}" if names else
+                 ("Unloaded: nothing (no selected model was in VRAM)" if kinds else "Unloaded: nothing (no models selected)")]
         if device is not None:
-            lines.append(f"VRAM karty: {_gb(before['device'])} → {_gb(after['device'])} "
-                         f"(zwolniono {_gb(before['device'] - after['device'])})")
+            lines.append(f"Device VRAM: {_gb(before['device'])} → {_gb(after['device'])} "
+                         f"(freed {_gb(before['device'] - after['device'])})")
             lines.append(f"PyTorch allocated: {_gb(before['allocated'])} → {_gb(after['allocated'])}, "
                          f"reserved: {_gb(before['reserved'])} → {_gb(after['reserved'])}")
-        lines.append(f"RAM ComfyUI: {_gb(before['rss'])} → {_gb(after['rss'])}")
+        lines.append(f"ComfyUI RAM: {_gb(before['rss'])} → {_gb(after['rss'])}")
         if clear_cache_after_run:
-            lines.append("Po zakończeniu zadania: czyszczenie cache ComfyUI.")
+            lines.append("After the job: clearing the ComfyUI cache.")
         report = "\n".join(lines)
         logging.info("[Szandor Memory Cleanup] %s", report.replace("→", "->"))
         return {"ui": {"szandor_memory": [report]}, "result": (value, report)}

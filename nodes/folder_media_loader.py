@@ -43,7 +43,9 @@ AUDIO_EXTENSIONS = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".opus")
 PROMPT_EXTENSIONS = (".txt", ".json")
 MEDIA_EXTENSIONS = IMAGE_EXTENSIONS + VIDEO_EXTENSIONS + AUDIO_EXTENSIONS
 
-FILTERS = ["wszystko", "obrazy", "wideo", "audio", "tylko z promptem"]
+FILTERS = ["all", "images", "videos", "audio", "prompt only"]
+# Polish values saved by older workflows; mapped to the English options.
+LEGACY_FILTERS = {"wszystko": "all", "obrazy": "images", "wideo": "videos", "tylko z promptem": "prompt only"}
 PREVIEW_MAX_SIDE = 768
 SILENCE_SAMPLE_RATE = 44100
 
@@ -55,7 +57,9 @@ JSON_PROMPT_KEYS = ("prompt", "text", "positive")
 # Typ wyjść time / start_time / end_time zależy od przełącznika time_output: backend deklaruje
 # typ łączony (pasuje do wejść FLOAT i STRING), a widżet w przeglądarce zawęża go do jednego.
 TIME_OUTPUT_TYPE = "FLOAT,STRING"
-TIME_OUTPUTS = ["liczba", "tekst: sekundy", "tekst: mm:ss.mmm", "tekst: hh:mm:ss.mmm"]
+TIME_OUTPUTS = ["number", "text: seconds", "text: mm:ss.mmm", "text: hh:mm:ss.mmm"]
+LEGACY_TIME_OUTPUTS = {"liczba": "number", "tekst: sekundy": "text: seconds",
+                       "tekst: mm:ss.mmm": "text: mm:ss.mmm", "tekst: hh:mm:ss.mmm": "text: hh:mm:ss.mmm"}
 
 # Wyjścia (indeksy muszą zgadzać się z RETURN_TYPES).
 OUT_IMAGE, OUT_VIDEO, OUT_AUDIO = 0, 1, 2
@@ -100,13 +104,14 @@ def scan_directory(directory):
 
 
 def filter_items(items, media_filter):
-    if media_filter == "obrazy":
+    media_filter = LEGACY_FILTERS.get(media_filter, media_filter)
+    if media_filter == "images":
         return [i for i in items if "image" in i]
-    if media_filter == "wideo":
+    if media_filter == "videos":
         return [i for i in items if "video" in i]
     if media_filter == "audio":
         return [i for i in items if "audio" in i]
-    if media_filter == "tylko z promptem":
+    if media_filter == "prompt only":
         return [i for i in items if "txt" in i or "json" in i]
     return items
 
@@ -156,16 +161,17 @@ def parse_time(value):
 
 def format_time(seconds, mode):
     """Wartość wyjścia czasu według przełącznika time_output: float albo tekst."""
+    mode = LEGACY_TIME_OUTPUTS.get(mode, mode)
     if mode not in TIME_OUTPUTS[1:]:
         return float(seconds)
     millis = int(round(float(seconds) * 1000))
     sign = "-" if millis < 0 else ""
     millis = abs(millis)
-    if mode == "tekst: sekundy":
+    if mode == "text: seconds":
         text = f"{millis // 1000}.{millis % 1000:03d}".rstrip("0").rstrip(".")
         return sign + text
     whole, ms = divmod(millis, 1000)
-    if mode == "tekst: mm:ss.mmm":
+    if mode == "text: mm:ss.mmm":
         minutes, secs = divmod(whole, 60)
         return f"{sign}{minutes:02d}:{secs:02d}.{ms:03d}"
     hours, rest = divmod(whole, 3600)
@@ -182,21 +188,28 @@ def read_prompt(directory, item):
     """Zwraca (prompt, czasy_z_json, ostrzeżenie | None). Czasy to słownik z kluczami
     time / start_time / end_time; brak pola w JSON daje None. Prompt z JSON ma
     pierwszeństwo przed .txt; pusty prompt w JSON używa pliku .txt."""
-    prompt = ""
+    prompt, _source, times, warning = _read_prompt(directory, item)
+    return prompt, times, warning
+
+
+def _read_prompt(directory, item):
+    """Jak read_prompt, z dodatkowym źródłem promptu: "json:<pole>", "txt" albo ""."""
+    prompt, source = "", ""
     times = {"time": None, "start_time": None, "end_time": None}
     if "txt" in item:
         prompt = _read_text(os.path.join(directory, item["txt"]))
+        source = "txt" if prompt else ""
     if "json" not in item:
-        return prompt, times, None
+        return prompt, source, times, None
     try:
         data = json.loads(_read_text(os.path.join(directory, item["json"])))
     except (OSError, ValueError) as exc:
-        return prompt, times, f"Niepoprawny JSON {item['json']}: {exc}"
+        return prompt, source, times, f"Invalid JSON {item['json']}: {exc}"
     if not isinstance(data, dict):
-        return prompt, times, f"{item['json']}: oczekiwano obiektu {{\"time\": …, \"prompt\": …}}"
+        return prompt, source, times, f"{item['json']}: expected an object {{\"time\": …, \"prompt\": …}}"
     for key in JSON_PROMPT_KEYS:
         if isinstance(data.get(key), str) and data[key].strip():
-            prompt = data[key]
+            prompt, source = data[key], f"json:{key}"
             break
     warnings = []
     for field, keys in (("time", JSON_TIME_KEYS), ("start_time", JSON_START_KEYS), ("end_time", JSON_END_KEYS)):
@@ -205,9 +218,9 @@ def read_prompt(directory, item):
             continue
         times[field] = parse_time(data[key])
         if times[field] is None:
-            warnings.append(f"nie rozpoznano {key} {data[key]!r}")
+            warnings.append(f"unrecognized {key} {data[key]!r}")
     warning = f"{item['json']}: " + "; ".join(warnings) if warnings else None
-    return prompt, times, warning
+    return prompt, source, times, warning
 
 
 def media_duration(path):
@@ -228,7 +241,7 @@ def media_duration(path):
 def resolve_item(directory, item, default_time):
     """Czas: JSON time → JSON end_time − start_time → długość wideo → długość audio → default_time.
     start_time / end_time są opcjonalne: brak start_time daje 0, brak end_time daje start_time + time."""
-    prompt, times, warning = read_prompt(directory, item)
+    prompt, prompt_source, times, warning = _read_prompt(directory, item)
     start, end = times["start_time"], times["end_time"]
     time_value, source = times["time"], "json"
     if time_value is None and start is not None and end is not None and end >= start:
@@ -241,15 +254,15 @@ def resolve_item(directory, item, default_time):
                     source = kind
                     break
     if time_value is None:
-        time_value, source = float(default_time), "domyślny"
+        time_value, source = float(default_time), "default"
     time_value = float(time_value)
     start_time = float(start) if start is not None else 0.0
     end_time = float(end) if end is not None else start_time + time_value
     if end_time < start_time:
-        note = f"end_time ({end_time}) jest mniejszy niż start_time ({start_time})"
+        note = f"end_time ({end_time}) is less than start_time ({start_time})"
         warning = f"{warning}; {note}" if warning else f"{item.get('json', item['name'])}: {note}"
     return {
-        "prompt": prompt, "time": time_value, "time_source": source,
+        "prompt": prompt, "prompt_source": prompt_source, "time": time_value, "time_source": source,
         "start_time": start_time, "end_time": end_time,
         "range_in_json": start is not None or end is not None,
         "warning": warning,
@@ -267,23 +280,23 @@ def _pil_to_tensor(img):
 def first_video_frame(path):
     """Pierwsza klatka jako PIL.Image (z uwzględnieniem obrotu)."""
     if av is None:
-        raise RuntimeError("Brak PyAV — nie można odczytać wideo.")
+        raise RuntimeError("PyAV is not available — cannot read video.")
     with av.open(path) as container:
         if not container.streams.video:
-            raise ValueError(f"Plik nie zawiera ścieżki wideo: {path}")
+            raise ValueError(f"The file has no video stream: {path}")
         for frame in container.decode(video=0):
             img = frame.to_image()
             rotation = getattr(frame, "rotation", 0) or 0
             if rotation:
                 img = img.rotate(rotation, expand=True)
             return img
-    raise ValueError(f"Nie udało się odczytać klatki z: {path}")
+    raise ValueError(f"Could not read a frame from: {path}")
 
 
 def load_audio(path):
     """Zwraca AUDIO ComfyUI albo None, jeśli plik nie ma ścieżki audio."""
     if av is None:
-        raise RuntimeError("Brak PyAV — nie można odczytać audio.")
+        raise RuntimeError("PyAV is not available — cannot read audio.")
     with av.open(path) as container:
         if not container.streams.audio:
             return None
@@ -423,7 +436,7 @@ def import_dropped(directory, files):
 @PromptServer.instance.routes.get("/szandor/folder-media/list")
 async def szandor_folder_media_list(request):
     directory = (request.query.get("directory") or "").strip()
-    media_filter = request.query.get("filter") or FILTERS[0]
+    media_filter = LEGACY_FILTERS.get(request.query.get("filter") or "", request.query.get("filter") or FILTERS[0])
     exists = bool(directory) and os.path.isdir(directory)
     items = filter_items(scan_directory(directory), media_filter) if exists else []
     return web.json_response({
@@ -443,11 +456,11 @@ async def szandor_folder_media_info(request):
         default_time = 5.0
     item = _find_item(directory, name)
     if item is None:
-        raise web.HTTPNotFound(text="Nie znaleziono pozycji w katalogu.")
+        raise web.HTTPNotFound(text="Item not found in the directory.")
     try:
         info = resolve_item(directory, item, default_time)
     except (OSError, UnicodeDecodeError) as exc:
-        info = {"prompt": "", "time": default_time, "time_source": "domyślny", "start_time": 0.0,
+        info = {"prompt": "", "time": default_time, "time_source": "default", "start_time": 0.0,
                 "end_time": default_time, "range_in_json": False, "warning": str(exc)}
     return web.json_response({**info, "item": item})
 
@@ -458,7 +471,7 @@ async def szandor_folder_media_preview(request):
     directory = (request.query.get("directory") or "").strip()
     item = _find_item(directory, request.query.get("name") or "")
     if item is None or not ("image" in item or "video" in item):
-        raise web.HTTPNotFound(text="Brak obrazu do podglądu.")
+        raise web.HTTPNotFound(text="No image to preview.")
     try:
         if "image" in item:
             with Image.open(os.path.join(directory, item["image"])) as src:
@@ -472,7 +485,7 @@ async def szandor_folder_media_preview(request):
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85)
     except Exception as exc:
-        raise web.HTTPUnprocessableEntity(text=f"Nie udało się utworzyć podglądu: {exc}")
+        raise web.HTTPUnprocessableEntity(text=f"Could not create a preview: {exc}")
     return web.Response(body=buf.getvalue(), content_type="image/jpeg", headers={
         "Cache-Control": "no-cache",
         "X-Source-Width": str(width),
@@ -486,7 +499,7 @@ async def szandor_folder_media_file(request):
     directory = (request.query.get("directory") or "").strip()
     path = _resolve_file(directory, request.query.get("filename") or "", MEDIA_EXTENSIONS)
     if path is None:
-        raise web.HTTPNotFound(text="Nie znaleziono pliku w katalogu.")
+        raise web.HTTPNotFound(text="File not found in the directory.")
     return web.FileResponse(path=path, headers={"Cache-Control": "no-cache"})
 
 
@@ -508,15 +521,15 @@ async def szandor_folder_media_drop(request):
             if filename:
                 files.append((filename, bytes(await part.read())))
     if not files:
-        return web.json_response({"error": "Brak plików."}, status=400)
+        return web.json_response({"error": "No files."}, status=400)
     # Wpisany katalog musi istnieć (literówka nie tworzy nowego folderu); domyślny powstaje w razie potrzeby.
     if directory and not os.path.isdir(directory):
-        return web.json_response({"error": f"Katalog nie istnieje: {directory}"}, status=400)
+        return web.json_response({"error": f"Directory does not exist: {directory}"}, status=400)
     directory = directory or default_drop_directory()
     try:
         result = import_dropped(directory, files)
     except OSError as exc:
-        return web.json_response({"error": f"Nie udało się zapisać plików: {exc}"}, status=500)
+        return web.json_response({"error": f"Could not save the files: {exc}"}, status=500)
     return web.json_response({**result, "directory": directory})
 
 
@@ -532,22 +545,22 @@ class SzandorFolderMediaLoader:
                 "directory": ("STRING", {"default": ""}),
                 "seed": ("INT", {
                     "default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF, "control_after_generate": True,
-                    "tooltip": "Wybiera pozycję w folderze: indeks = seed mod liczba pozycji. "
-                               "increment/decrement przechodzi po kolei, randomize losuje.",
+                    "tooltip": "Selects the item in the folder: index = seed mod item count. "
+                               "increment/decrement steps through items, randomize picks one at random.",
                 }),
-                "media_filter": (FILTERS, {"default": FILTERS[0], "tooltip": "Które pozycje brać pod uwagę."}),
+                "media_filter": (FILTERS, {"default": FILTERS[0], "tooltip": "Which items to include."}),
                 "default_time": ("FLOAT", {
                     "default": 5.0, "min": 0.0, "max": 3600.0, "step": 0.1,
-                    "tooltip": "Czas, gdy brak JSON z polem time oraz wideo/audio z długością.",
+                    "tooltip": "Duration used when there is no JSON time field and no video/audio with a length.",
                 }),
                 "fps": ("FLOAT", {
                     "default": 24.0, "min": 1.0, "max": 240.0, "step": 1.0,
-                    "tooltip": "Służy tylko do wyliczenia wyjścia frames = round(time × fps).",
+                    "tooltip": "Only used to compute the frames output = round(time × fps).",
                 }),
                 "time_output": (TIME_OUTPUTS, {
                     "default": TIME_OUTPUTS[0],
-                    "tooltip": "Typ wyjść time, start_time i end_time: liczba (FLOAT, sekundy) albo tekst "
-                               "(STRING): \"5.5\", \"00:05.500\" lub \"00:00:05.500\".",
+                    "tooltip": "Type of the time, start_time and end_time outputs: number (FLOAT, seconds) or text "
+                               "(STRING): \"5.5\", \"00:05.500\" or \"00:00:05.500\".",
                 }),
             },
             "hidden": {"prompt": "PROMPT", "unique_id": "UNIQUE_ID"},
@@ -559,28 +572,29 @@ class SzandorFolderMediaLoader:
     RETURN_NAMES = ("image", "video", "audio", "prompt", "time", "frames", "seed", "filename", "index", "count",
                     "start_time", "end_time")
     OUTPUT_TOOLTIPS = (
-        "Obraz lub pierwsza klatka wideo (czarny 64×64, gdy pozycja ma tylko audio/prompt).",
-        "Wideo z pliku; błąd, jeśli podłączone, a pozycja nie ma wideo.",
-        "Plik audio o tej samej nazwie, w przeciwnym razie ścieżka audio z wideo, a na końcu cisza o długości time.",
-        "Prompt z .json (pole prompt) lub z .txt.",
-        "Czas (liczba lub tekst wg time_output): JSON time → JSON end_time − start_time → długość wideo → długość audio → default_time.",
+        "Image or the first video frame (black 64×64 when the item has only audio/prompt).",
+        "Video from the file; an error if connected while the item has no video.",
+        "Audio file with the same name, otherwise the video's audio track, otherwise silence lasting time.",
+        "Prompt from .json (prompt field) or from .txt.",
+        "Duration (number or text per time_output): JSON time → JSON end_time − start_time → video length → audio length → default_time.",
         "round(time × fps).",
-        "Użyty seed.",
-        "Nazwa pozycji (bez rozszerzenia).",
-        "Indeks pozycji (od 0).",
-        "Liczba pozycji po filtrze.",
-        "start_time z JSON (opcjonalny); gdy brak — 0. Liczba lub tekst wg time_output.",
-        "end_time z JSON (opcjonalny); gdy brak — start_time + time. Liczba lub tekst wg time_output.",
+        "The seed used.",
+        "Item name (without extension).",
+        "Item index (from 0).",
+        "Number of items after filtering.",
+        "start_time from JSON (optional); 0 when missing. Number or text per time_output.",
+        "end_time from JSON (optional); start_time + time when missing. Number or text per time_output.",
     )
     FUNCTION = "load"
-    CATEGORY = "Moje Nody/Image"
+    CATEGORY = "Szandor/Media"
+    DESCRIPTION = "Loads an image / video / audio file with its .txt or .json prompt and duration from a folder; the seed selects the item."
 
     def load(self, directory, seed, media_filter, default_time, fps, time_output=TIME_OUTPUTS[0],
              prompt=None, unique_id=None):
         directory = (directory or "").strip()
         items = filter_items(scan_directory(directory), media_filter)
         if not items:
-            raise FileNotFoundError(f"Brak pasujących plików ({media_filter}) w katalogu: {directory}")
+            raise FileNotFoundError(f"No matching files ({media_filter}) in directory: {directory}")
         index = pick_index(seed, len(items))
         item = items[index]
         info = resolve_item(directory, item, default_time)
@@ -600,11 +614,11 @@ class SzandorFolderMediaLoader:
         video = None
         if "video" in path:
             if VideoFromFile is None:
-                raise RuntimeError("Ta wersja ComfyUI nie obsługuje typu VIDEO.")
+                raise RuntimeError("This ComfyUI version does not support the VIDEO type.")
             video = VideoFromFile(path["video"])
         elif OUT_VIDEO in used:
-            raise ValueError(f"Pozycja '{item['name']}' nie ma pliku wideo, a wyjście video jest podłączone. "
-                             "Ustaw media_filter = wideo albo odłącz wyjście.")
+            raise ValueError(f"Item '{item['name']}' has no video file, but the video output is connected. "
+                             "Set media_filter = videos or disconnect the output.")
 
         audio = None
         if OUT_AUDIO in used:
@@ -633,20 +647,26 @@ class SzandorFolderMediaLoader:
         return f"{seed}:{item['name']}:{items_signature(directory, [item])}"
 
     @classmethod
-    def VALIDATE_INPUTS(cls, directory, media_filter):
+    def VALIDATE_INPUTS(cls, directory, media_filter, time_output=TIME_OUTPUTS[0]):
+        # Declaring the combo inputs here also lets older Polish values pass validation.
+        if LEGACY_FILTERS.get(media_filter, media_filter) not in FILTERS:
+            return f"Unknown media_filter: {media_filter}"
+        if LEGACY_TIME_OUTPUTS.get(time_output, time_output) not in TIME_OUTPUTS:
+            return f"Unknown time_output: {time_output}"
         directory = (directory or "").strip()
         if not directory:
-            return "Nie podano katalogu."
+            return "No directory given."
         if not os.path.isdir(directory):
-            return f"Katalog nie istnieje: {directory}"
+            return f"Directory does not exist: {directory}"
         if not filter_items(scan_directory(directory), media_filter):
-            return f"Brak pasujących plików ({media_filter}) w katalogu: {directory}"
+            return f"No matching files ({media_filter}) in directory: {directory}"
         return True
 
 
 # ─── zapis wyniku pod nazwą źródła ──────────────────────────────────────────
 
-ON_EXISTS = ["numeruj", "nadpisz", "pomiń"]
+ON_EXISTS = ["increment", "overwrite", "skip"]
+LEGACY_ON_EXISTS = {"numeruj": "increment", "nadpisz": "overwrite", "pomiń": "skip"}
 IMAGE_FORMATS = ["png", "jpg", "webp"]
 DEFAULT_OUTPUT_SUBDIR = "szandor_folder_media"
 
@@ -674,9 +694,10 @@ def choose_stem(directory, stem, extensions, on_exists):
     def taken(candidate):
         return any(os.path.exists(os.path.join(directory, candidate + ext)) for ext in extensions)
 
-    if on_exists == "nadpisz" or not taken(stem):
+    on_exists = LEGACY_ON_EXISTS.get(on_exists, on_exists)
+    if on_exists == "overwrite" or not taken(stem):
         return stem
-    if on_exists == "pomiń":
+    if on_exists == "skip":
         return None
     counter = 2
     while taken(f"{stem}_{counter}"):
@@ -712,25 +733,25 @@ class SzandorSaveAsSource:
         return {
             "required": {
                 "filename": ("STRING", {"forceInput": True,
-                                        "tooltip": "Podłącz wyjście filename z Folder Media + Prompt Loader."}),
-                "enabled": ("BOOLEAN", {"default": True, "label_on": "zapisuj", "label_off": "wyłączony",
-                                        "tooltip": "Wyłączony node niczego nie zapisuje."}),
+                                        "tooltip": "Connect the filename output of Folder Media + Prompt Loader."}),
+                "enabled": ("BOOLEAN", {"default": True, "label_on": "save", "label_off": "off",
+                                        "tooltip": "When off, the node saves nothing."}),
                 "output_directory": ("STRING", {"default": "",
-                                                "tooltip": "Pusty: ComfyUI/output/szandor_folder_media. "
-                                                           "Ścieżka względna liczona od ComfyUI/output."}),
-                "suffix": ("STRING", {"default": "", "tooltip": "Dopisywany do nazwy, np. _gen → ujecie01_gen.png"}),
-                "on_exists": (ON_EXISTS, {"default": "numeruj",
-                                          "tooltip": "Gdy plik istnieje: numeruj (_2, _3…), nadpisz lub pomiń zapis."}),
+                                                "tooltip": "Empty: ComfyUI/output/szandor_folder_media. "
+                                                           "Relative paths start at ComfyUI/output."}),
+                "suffix": ("STRING", {"default": "", "tooltip": "Appended to the name, e.g. _gen → shot01_gen.png"}),
+                "on_exists": (ON_EXISTS, {"default": "increment",
+                                          "tooltip": "When the file exists: increment (_2, _3…), overwrite, or skip saving."}),
                 "image_format": (IMAGE_FORMATS, {"default": "png"}),
             },
             "optional": {
                 "image": ("IMAGE",),
                 "video": ("VIDEO",),
                 "audio": ("AUDIO",),
-                "prompt": ("STRING", {"forceInput": True, "tooltip": "Zapisywany jako .txt (lub .json z time)."}),
-                "time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "Z promptem daje .json {time, prompt}. Liczba sekund albo tekst (np. 00:05.5)."}),
-                "start_time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "Opcjonalnie dopisywany do .json. Liczba sekund albo tekst (np. 00:05.5)."}),
-                "end_time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "Opcjonalnie dopisywany do .json. Liczba sekund albo tekst (np. 00:05.5)."}),
+                "prompt": ("STRING", {"forceInput": True, "tooltip": "Saved as .txt (or .json with time)."}),
+                "time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "With a prompt, produces .json {time, prompt}. Seconds or text (e.g. 00:05.5)."}),
+                "start_time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "Optionally added to the .json. Seconds or text (e.g. 00:05.5)."}),
+                "end_time": (TIME_OUTPUT_TYPE, {"forceInput": True, "tooltip": "Optionally added to the .json. Seconds or text (e.g. 00:05.5)."}),
             },
         }
 
@@ -738,7 +759,15 @@ class SzandorSaveAsSource:
     RETURN_NAMES = ("saved_paths",)
     OUTPUT_NODE = True
     FUNCTION = "save"
-    CATEGORY = "Moje Nody/Image"
+    CATEGORY = "Szandor/Media"
+    DESCRIPTION = "Saves results under the source item's name from Folder Media + Prompt Loader (e.g. shot01.png / .mp4 / .wav / .txt)."
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, on_exists):
+        # Declared so workflows saved with the older Polish on_exists values still validate.
+        if LEGACY_ON_EXISTS.get(on_exists, on_exists) not in ON_EXISTS:
+            return f"Unknown on_exists: {on_exists}"
+        return True
 
     def save(self, filename, enabled, output_directory, suffix, on_exists, image_format,
              image=None, video=None, audio=None, prompt=None, time=None, start_time=None, end_time=None):
@@ -748,18 +777,18 @@ class SzandorSaveAsSource:
                 continue
             seconds = parse_time(value)
             if seconds is None:
-                raise ValueError(f"Nie rozpoznano wartości {key}: {value!r}")
+                raise ValueError(f"Unrecognized {key} value: {value!r}")
             timing[key] = seconds
         if not enabled:
-            return {"ui": {"text": ["Zapis wyłączony"]}, "result": ("",)}
+            return {"ui": {"text": ["Saving disabled"]}, "result": ("",)}
         stem = safe_basename(filename)
         if stem.lower().endswith(MEDIA_EXTENSIONS + PROMPT_EXTENSIONS):
             stem = os.path.splitext(stem)[0]
         stem = safe_basename(stem + (suffix or ""))
         if not stem:
-            raise ValueError("Brak nazwy pliku do zapisu — podłącz wyjście filename z loadera.")
+            raise ValueError("No file name to save — connect the loader's filename output.")
         if all(x is None for x in (image, video, audio, prompt)):
-            raise ValueError("Nic do zapisania — podłącz image, video, audio lub prompt.")
+            raise ValueError("Nothing to save — connect image, video, audio or prompt.")
 
         directory = resolve_output_directory(output_directory)
         os.makedirs(directory, exist_ok=True)
@@ -780,7 +809,7 @@ class SzandorSaveAsSource:
 
         final = choose_stem(directory, stem, extensions, on_exists)
         if final is None:
-            message = f"Pominięto — {stem} już istnieje w {directory}"
+            message = f"Skipped — {stem} already exists in {directory}"
             print(f"[Szandor Save As Source] {message}")
             return {"ui": {"text": [message]}, "result": ("",)}
 
@@ -815,7 +844,7 @@ class SzandorSaveAsSource:
                     f.write(prompt)
             saved.append(path)
 
-        return {"ui": {"text": [f"Zapisano: {os.path.basename(p)}" for p in saved]}, "result": ("\n".join(saved),)}
+        return {"ui": {"text": [f"Saved: {os.path.basename(p)}" for p in saved]}, "result": ("\n".join(saved),)}
 
 
 NODE_CLASS_MAPPINGS = {

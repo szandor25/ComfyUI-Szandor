@@ -36,12 +36,13 @@ class QwenImageGenNode:
     RETURN_TYPES = ("IMAGE", "STRING")
     RETURN_NAMES = ("image", "final_prompt")
     FUNCTION = "generate_image"
-    CATEGORY = "LLM/Alibaba"
+    CATEGORY = "Szandor/API"
+    DESCRIPTION = "Generates an image through the Alibaba DashScope API (Wan 2.1 / Qwen). Needs DASHSCOPE_API_KEY."
 
     def generate_image(self, prompt, aspect_ratio, model, seed, negative_prompt=""):
         api_key = os.getenv("DASHSCOPE_API_KEY")
         if not api_key:
-            raise Exception("Brak DASHSCOPE_API_KEY w zmiennych środowiskowych!")
+            raise Exception("DASHSCOPE_API_KEY is not set in the environment!")
 
         # Mapowanie rozdzielczości zgodnie z Twoim życzeniem
         aspect_ratios = {
@@ -88,7 +89,7 @@ class QwenImageGenNode:
             return (image_tensor, prompt)
 
         except Exception as e:
-            print(f"Błąd podczas generowania obrazu: {str(e)}")
+            print(f"Image generation error: {str(e)}")
             raise e
 
 # Rejestracja noda
@@ -97,5 +98,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "QwenImageGenNode": "Alibaba Wan2.1/Qwen Image Gen"
+    "QwenImageGenNode": "Alibaba Wan 2.1 / Qwen Image Gen (Szandor)"
 }

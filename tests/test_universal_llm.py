@@ -100,7 +100,7 @@ class GatewayTests(unittest.TestCase):
         self.create.return_value.choices[0].message.content = None
         self.create.return_value.choices[0].finish_reason = "length"
         result = self.generate("OpenAI", "gpt-6-astra")
-        self.assertIn("Zwiększ wartość 'max_tokens'", result[0])
+        self.assertIn("Increase 'max_tokens'", result[0])
         self.assertIn("4096", result[0])
 
     def test_every_configured_model_has_a_profile_and_keeps_default_chat(self):
@@ -144,7 +144,7 @@ class GatewayTests(unittest.TestCase):
             ("Custom", "gpt-6-astra", {"output_format": "json_schema"}),
         ):
             with self.subTest(model=model, options=options):
-                self.assertIn("Błąd ustawień", self.generate(provider, model, **options)[0])
+                self.assertIn("Settings error", self.generate(provider, model, **options)[0])
                 self.module.OpenAI.assert_not_called()
 
     def test_qwen_effort_takes_precedence_over_budget(self):
@@ -248,7 +248,7 @@ class GatewayTests(unittest.TestCase):
                        '"required":[],"additionalProperties":false}'):
             with self.subTest(schema=schema):
                 result = self.generate("OpenAI", "gpt-6-astra", output_format="json_schema", json_schema=schema)
-                self.assertIn("Błąd ustawień", result[0])
+                self.assertIn("Settings error", result[0])
                 self.module.OpenAI.assert_not_called()
 
     def test_invalid_or_truncated_json_is_reported(self):
@@ -257,7 +257,7 @@ class GatewayTests(unittest.TestCase):
             with self.subTest(content=content, finish=finish):
                 choice = self.create.return_value.choices[0]
                 choice.message.content, choice.finish_reason = content, finish
-                self.assertIn("Błąd API", self.generate("OpenAI", "gpt-6-astra", output_format="json_object")[0])
+                self.assertIn("API error", self.generate("OpenAI", "gpt-6-astra", output_format="json_object")[0])
 
     def test_incomplete_or_failed_responses_are_reported(self):
         responses = self.module.OpenAI.return_value.responses.create
@@ -266,7 +266,7 @@ class GatewayTests(unittest.TestCase):
                 responses.return_value = SimpleNamespace(status=status, error=error,
                     incomplete_details=SimpleNamespace(reason="max_output_tokens"), output_text="")
                 result = self.generate("DeepSeek", "deepseek-flash", output_format="json_schema")
-                self.assertIn("Błąd API", result[0])
+                self.assertIn("API error", result[0])
 
     def test_legacy_optional_arguments_and_widget_order(self):
         schema = self.module.UniversalLLMNode.INPUT_TYPES()

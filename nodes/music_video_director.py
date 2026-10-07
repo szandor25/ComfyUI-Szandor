@@ -37,8 +37,10 @@ HAILUO_H3_FAILED_STATUSES = ["failed", "cancelled", "expired"]
 # comfy_api_nodes/nodes_minimax.py.
 HAILUO_H3_RATE_USD_PER_S = {"768P": 0.1287, "2K": 0.1859}
 
-BACKEND_API = "MiniMax H3 (płatne API)"
-BACKEND_LOCAL = "Lokalny workflow (bez API)"
+BACKEND_API = "MiniMax H3 (paid API)"
+BACKEND_LOCAL = "Local workflow (no API)"
+# Values saved by the Polish version of this node.
+LEGACY_BACKENDS = {"MiniMax H3 (płatne API)": BACKEND_API, "Lokalny workflow (bez API)": BACKEND_LOCAL}
 
 
 def _video_in_name(i: int) -> str:
@@ -58,11 +60,11 @@ def _parse_keyframes(raw: str) -> list:
     try:
         data = json.loads(raw) if raw else []
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"Nieprawidłowy JSON w keyframes_json: {exc}") from exc
+        raise ValueError(f"Invalid JSON in keyframes_json: {exc}") from exc
 
     if not isinstance(data, list) or len(data) < 2:
         raise ValueError(
-            "Potrzeba co najmniej 2 klatek kluczowych (czyli 1 segmentu), aby wygenerować wideo."
+            "At least 2 keyframes (1 segment) are needed to generate a video."
         )
 
     times = sorted(float(t) for t in data)
@@ -70,8 +72,8 @@ def _parse_keyframes(raw: str) -> list:
         gap = times[i + 1] - times[i]
         if gap < 4.5 or gap > 15.5:
             raise ValueError(
-                f"Odstęp między klatką {i + 1} ({times[i]:.2f}s) a klatką {i + 2} "
-                f"({times[i + 1]:.2f}s) wynosi {gap:.2f}s. MiniMax H3 wymaga 5-15s na segment."
+                f"The gap between keyframe {i + 1} ({times[i]:.2f}s) and keyframe {i + 2} "
+                f"({times[i + 1]:.2f}s) is {gap:.2f}s. MiniMax H3 needs 5-15s per segment."
             )
     return times
 
@@ -93,10 +95,10 @@ def _blank_video() -> "InputImpl.VideoFromComponents":
 
 async def _generate_segment(cls, first_frame, last_frame, prompt: str, resolution: str, duration: int, seed: int, watermark: bool):
     first_url = (await upload_images_to_comfyapi(
-        cls, first_frame, max_images=1, wait_label="Wysyłanie pierwszej klatki"
+        cls, first_frame, max_images=1, wait_label="Uploading the first frame"
     ))[0]
     last_url = (await upload_images_to_comfyapi(
-        cls, last_frame, max_images=1, wait_label="Wysyłanie ostatniej klatki"
+        cls, last_frame, max_images=1, wait_label="Uploading the last frame"
     ))[0]
 
     content = [
@@ -131,7 +133,7 @@ async def _generate_segment(cls, first_frame, last_frame, prompt: str, resolutio
 
     video_url = task_result.task.content.url if task_result.task.content else None
     if not video_url:
-        raise Exception(f"MiniMax H3 nie zwrócił adresu wideo: {task_result.model_dump()}")
+        raise Exception(f"MiniMax H3 returned no video URL: {task_result.model_dump()}")
 
     return await download_url_to_video_output(video_url, cls=cls)
 
@@ -156,21 +158,21 @@ class MusicVideoDirector(IO.ComfyNode):
             IO.Combo.Input(
                 "audio",
                 options=sorted(audio_files),
-                tooltip="Utwór, na podstawie którego rysowany jest oscylogram i rozstawiane klatki kluczowe.",
+                tooltip="The track used to draw the waveform and place keyframes.",
             ),
             IO.Combo.Input(
                 "backend",
                 options=[BACKEND_API, BACKEND_LOCAL],
                 default=BACKEND_API,
-                tooltip="MiniMax H3: node sam generuje każdy segment (płatne). Lokalny workflow: podłączasz "
-                "gotowe klipy VIDEO z własnego lokalnego generatora do gniazd video_in_XX — bez API, bez kosztu.",
+                tooltip="MiniMax H3: the node generates every segment itself (paid). Local workflow: connect "
+                "finished VIDEO clips from your own local generator to the video_in_XX inputs — no API, no cost.",
             ),
             IO.String.Input(
                 "keyframes_json",
                 multiline=False,
                 default="[0.0, 5.0]",
-                tooltip="Wewnętrzny stan edytora oscylogramu (JSON z czasami klatek kluczowych w sekundach). "
-                "Edytowany przez widget na canvasie, nie ręcznie.",
+                tooltip="Internal state of the waveform editor (JSON with keyframe times in seconds). "
+                "Edited through the canvas widget, not by hand.",
             ),
             IO.Combo.Input("resolution", options=["768P", "2K"], default="768P"),
             IO.Int.Input(
@@ -180,30 +182,30 @@ class MusicVideoDirector(IO.ComfyNode):
                 max=4294967295,
                 step=1,
                 control_after_generate=True,
-                tooltip="Ten sam seed dla wszystkich segmentów w tym uruchomieniu.",
+                tooltip="The same seed for every segment in this run.",
             ),
             IO.Boolean.Input(
                 "watermark",
                 default=False,
                 advanced=True,
-                tooltip="Dodaje znak wodny AIGC do generowanych segmentów.",
+                tooltip="Adds the AIGC watermark to generated segments.",
             ),
             IO.Boolean.Input(
                 "use_cache",
                 default=True,
-                tooltip="Pomija (płatne) ponowne generowanie segmentu, jeśli jego obrazy/prompt/ustawienia się nie zmieniły.",
+                tooltip="Skips (paid) regeneration of a segment when its images / prompt / settings did not change.",
             ),
             IO.Boolean.Input(
                 "dry_run",
                 default=False,
-                tooltip="Sprawdza walidacje i liczy szacowany koszt BEZ wywoływania płatnego API MiniMax.",
+                tooltip="Runs the checks and estimates the cost WITHOUT calling the paid MiniMax API.",
             ),
             IO.String.Input(
                 "default_prompt",
                 multiline=True,
                 default="",
                 optional=True,
-                tooltip="Używany dla klatek, których własne pole prompt jest puste.",
+                tooltip="Used for keyframes whose own prompt field is empty.",
             ),
         ]
         for i in range(1, cls.MAX_KEYFRAMES + 1):
@@ -213,14 +215,14 @@ class MusicVideoDirector(IO.ComfyNode):
             inputs.append(IO.Video.Input(
                 _video_in_name(i),
                 optional=True,
-                tooltip=f"Tryb lokalny: gotowy klip wideo dla segmentu {i} (od klatki {i} do klatki {i + 1}), "
-                "wygenerowany we własnym workflow. Długość powinna odpowiadać rozstawowi klatek kluczowych, "
-                "inaczej dźwięk rozjedzie się z obrazem w finalnym wideo.",
+                tooltip=f"Local mode: a finished video clip for segment {i} (keyframe {i} to keyframe {i + 1}), "
+                "generated in your own workflow. Its length should match the keyframe spacing, "
+                "otherwise the sound drifts from the picture in the final video.",
             ))
 
         outputs = [
-            IO.Video.Output(display_name="wideo_koncowe"),
-            IO.Float.Output(display_name="koszt_szacowany_usd"),
+            IO.Video.Output(display_name="final_video"),
+            IO.Float.Output(display_name="estimated_cost_usd"),
             IO.String.Output(display_name="manifest_json"),
         ]
         for i in range(1, cls.MAX_KEYFRAMES):
@@ -228,15 +230,22 @@ class MusicVideoDirector(IO.ComfyNode):
 
         return IO.Schema(
             node_id="SzandorMusicVideoDirector",
-            display_name="Reżyser Teledysku (MiniMax H3)",
-            category="Moje Nody/Wideo",
-            description="Rozstaw klatki kluczowe na oscylogramie utworu i wygeneruj teledysk segment po "
-            "segmencie modelem MiniMax H3 (first-frame/last-frame), ze sklejonym finalnym wideo i audio.",
+            display_name="Music Video Director — MiniMax H3 (Szandor)",
+            category="Szandor/Video",
+            description="Place keyframes on the track's waveform and generate a music video segment by "
+            "segment with MiniMax H3 (first-frame/last-frame), joined into a final video with the audio.",
             inputs=inputs,
             outputs=outputs,
             hidden=[IO.Hidden.auth_token_comfy_org, IO.Hidden.api_key_comfy_org, IO.Hidden.unique_id],
             is_api_node=True,
         )
+
+    @classmethod
+    def validate_inputs(cls, backend):
+        # Declared so workflows saved with the Polish backend names still validate.
+        if LEGACY_BACKENDS.get(backend, backend) not in (BACKEND_API, BACKEND_LOCAL):
+            return f"Unknown backend: {backend}"
+        return True
 
     @classmethod
     async def execute(
@@ -254,7 +263,7 @@ class MusicVideoDirector(IO.ComfyNode):
     ) -> IO.NodeOutput:
         times = _parse_keyframes(keyframes_json)
         n_segments = len(times) - 1
-        is_local = backend == BACKEND_LOCAL
+        is_local = LEGACY_BACKENDS.get(backend, backend) == BACKEND_LOCAL
 
         audio_path = folder_paths.get_annotated_filepath(audio)
         waveform, sample_rate = _load_audio_file(audio_path)
@@ -288,7 +297,7 @@ class MusicVideoDirector(IO.ComfyNode):
                         status = "dry_run"
                     else:
                         raise ValueError(
-                            f"Tryb lokalny: brak podłączonego wideo w gnieździe "
+                            f"Local mode: no video connected to input "
                             f"{_video_in_name(i + 1)} (segment {i + 1})."
                         )
                 else:
@@ -297,8 +306,8 @@ class MusicVideoDirector(IO.ComfyNode):
                         actual_duration = video.get_duration()
                         if abs(actual_duration - expected_duration) > 0.5:
                             warning = (
-                                f"długość klipu ({actual_duration:.2f}s) różni się od rozstawu klatek "
-                                f"({expected_duration:.2f}s) — audio może się rozjechać z obrazem"
+                                f"clip length ({actual_duration:.2f}s) differs from the keyframe spacing "
+                                f"({expected_duration:.2f}s) — the audio may drift from the picture"
                             )
                     except Exception:
                         pass
@@ -318,9 +327,9 @@ class MusicVideoDirector(IO.ComfyNode):
             img1 = kwargs.get(f"image_{i + 1:02d}")
             img2 = kwargs.get(f"image_{i + 2:02d}")
             if img1 is None:
-                raise ValueError(f"Brak obrazu w gnieździe image_{i + 1:02d} (klatka kluczowa {i + 1}).")
+                raise ValueError(f"No image in input image_{i + 1:02d} (keyframe {i + 1}).")
             if img2 is None:
-                raise ValueError(f"Brak obrazu w gnieździe image_{i + 2:02d} (klatka kluczowa {i + 2}).")
+                raise ValueError(f"No image in input image_{i + 2:02d} (keyframe {i + 2}).")
 
             prompt_raw = kwargs.get(f"prompt_{i + 1:02d}") or default_prompt or ""
             prompt = prompt_raw.strip()
@@ -349,7 +358,7 @@ class MusicVideoDirector(IO.ComfyNode):
                     video = InputImpl.VideoFromFile(cache_path)
                 except Exception as exc:
                     logging.warning(
-                        "[MusicVideoDirector] Nie udało się zapisać cache segmentu %s: %s", i + 1, exc
+                        "[MusicVideoDirector] Could not save the segment cache %s: %s", i + 1, exc
                     )
                 status = "miss"
 
@@ -389,4 +398,4 @@ class MusicVideoDirector(IO.ComfyNode):
 
 
 NODE_CLASS_MAPPINGS = {"SzandorMusicVideoDirector": MusicVideoDirector}
-NODE_DISPLAY_NAME_MAPPINGS = {"SzandorMusicVideoDirector": "Reżyser Teledysku (MiniMax H3)"}
+NODE_DISPLAY_NAME_MAPPINGS = {"SzandorMusicVideoDirector": "Music Video Director — MiniMax H3 (Szandor)"}

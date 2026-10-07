@@ -29,7 +29,8 @@ class QwenWanResolutionNode:
     RETURN_TYPES = ("INT", "INT", "STRING")
     RETURN_NAMES = ("width", "height", "text_info")
     FUNCTION = "get_dimensions"
-    CATEGORY = "LLM/Alibaba/Utils"
+    CATEGORY = "Szandor/API"
+    DESCRIPTION = "Picks a Qwen / Wan resolution preset and outputs width, height and a text summary."
 
     def get_dimensions(self, aspect_ratio):
         # Wyciągamy liczby z ciągu tekstowego za pomocą wyrażenia regularnego
@@ -43,7 +44,7 @@ class QwenWanResolutionNode:
             # Failsafe (domyślne 1:1 jeśli coś pójdzie nie tak)
             width, height = 1328, 1328
 
-        info = f"Rozdzielczość: {width}x{height} (Proporcje {aspect_ratio.split(' ')[0]})"
+        info = f"Resolution: {width}x{height} (aspect ratio {aspect_ratio.split(' ')[0]})"
 
         return (width, height, info)
 
@@ -53,5 +54,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "QwenWanResolutionNode": "Qwen/Wan Resolution Selector"
+    "QwenWanResolutionNode": "Qwen / Wan Resolution Selector (Szandor)"
 }

@@ -69,7 +69,7 @@ async def szandor_dir_image_view(request):
     filename = (request.query.get("filename") or "").strip()
     path = _resolve_in_directory(directory, filename)
     if path is None:
-        raise web.HTTPNotFound(text="Nie znaleziono pliku w katalogu.")
+        raise web.HTTPNotFound(text="File not found in the folder.")
     return web.FileResponse(path=path, headers={"Cache-Control": "no-cache"})
 
 
@@ -88,12 +88,13 @@ class SzandorDirectoryImageLoader:
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("image", "mask")
     FUNCTION = "load"
-    CATEGORY = "Moje Nody/Image"
+    CATEGORY = "Szandor/Image"
+    DESCRIPTION = "Loads a single image chosen from any folder on disk, with thumbnails and recent folders."
 
     def load(self, directory, filename):
         path = _resolve_in_directory(directory, filename)
         if path is None:
-            raise FileNotFoundError(f"Nie znaleziono obrazu '{filename}' w katalogu '{directory}'.")
+            raise FileNotFoundError(f"Image '{filename}' not found in folder '{directory}'.")
 
         img = Image.open(path)
         img = ImageOps.exif_transpose(img)
@@ -128,13 +129,13 @@ class SzandorDirectoryImageLoader:
     @classmethod
     def VALIDATE_INPUTS(cls, directory, filename):
         if not directory:
-            return "Nie podano katalogu."
+            return "No folder given."
         if not os.path.isdir(directory):
-            return f"Katalog nie istnieje: {directory}"
+            return f"Folder does not exist: {directory}"
         if not filename:
-            return "Nie wybrano obrazu z katalogu."
+            return "No image selected from the folder."
         if _resolve_in_directory(directory, filename) is None:
-            return f"Plik nie istnieje w katalogu: {filename}"
+            return f"File does not exist in the folder: {filename}"
         return True
 
 

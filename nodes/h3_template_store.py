@@ -27,19 +27,19 @@ class TemplateStore:
 
     def directory(self, template_id):
         if not isinstance(template_id, str) or not re.fullmatch(r"[0-9a-f]{32}", template_id):
-            raise ValueError("Nieprawidłowy identyfikator szablonu.")
+            raise ValueError("Invalid template id.")
         return self.root / template_id
 
     def read(self, template_id):
         data = json.loads((self.directory(template_id) / "template.json").read_text(encoding="utf-8"))
         if data.get("version") != 1:
-            raise ValueError("Nieobsługiwana wersja szablonu.")
+            raise ValueError("Unsupported template version.")
         return data
 
     def delete(self, template_id):
         directory = self.directory(template_id)
         if directory.is_symlink():
-            raise ValueError("Katalog szablonu nie może być dowiązaniem symbolicznym.")
+            raise ValueError("The template directory must not be a symbolic link.")
         self.read(template_id)
         # Keep original sources and restored input copies: existing workflows
         # may still use them after the library entry has been removed.
@@ -68,18 +68,18 @@ class TemplateStore:
         node = next((node for node in workflow["nodes"] if str(node["id"]) == str(ref["node_id"])), None)
         index = ref["widget_index"]
         if node is None or type(index) is not int or not 0 <= index < len(node.get("widgets_values", [])):
-            raise ValueError("Nie można odnaleźć pola obrazu w workflow.")
+            raise ValueError("Cannot find the image field in the workflow.")
         return node, index
 
     def source(self, workflow, ref):
         node, index = self.target(workflow, ref)
         value = node["widgets_values"][index]
         if not isinstance(value, str) or not value:
-            raise ValueError("Puste pole obrazu w workflow.")
+            raise ValueError("Empty image field in the workflow.")
         if node["type"] == "SzandorDirectoryImageLoader":
             directory_index = ref.get("directory_index")
             if type(directory_index) is not int or not 0 <= directory_index < len(node["widgets_values"]):
-                raise ValueError("Nieprawidłowe pole katalogu obrazu.")
+                raise ValueError("Invalid image directory field.")
             base = Path(node["widgets_values"][directory_index]).expanduser().resolve()
             filename = value
         else:
@@ -92,31 +92,31 @@ class TemplateStore:
             base = self.sources[kind].resolve()
         path = (base / filename).resolve()
         if not path.is_relative_to(base) or path.suffix.lower() not in IMAGE_EXTENSIONS:
-            raise ValueError(f"Nieobsługiwana ścieżka obrazu: {value}")
+            raise ValueError(f"Unsupported image path: {value}")
         return path
 
     def save(self, payload):
         name = payload.get("name", "")
         if not isinstance(name, str) or not name.strip() or len(name.strip()) > 160:
-            raise ValueError("Podaj nazwę szablonu (do 160 znaków).")
+            raise ValueError("Enter a template name (up to 160 characters).")
         name = name.strip()
         prompt = payload.get("prompt")
         workflow = payload.get("workflow")
         if not isinstance(prompt, str) or not isinstance(workflow, dict) or not isinstance(workflow.get("nodes"), list):
-            raise ValueError("Brakuje promptu lub pełnego workflow.")
+            raise ValueError("The prompt or the full workflow is missing.")
         duration = payload.get("duration")
         if duration is not None and (type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0):
-            raise ValueError("Czas trwania musi być dodatnią liczbą sekund lub pustym polem.")
+            raise ValueError("The duration must be a positive number of seconds or empty.")
         notes = payload.get("notes", "")
         if not isinstance(notes, str) or len(notes) > 10000:
-            raise ValueError("Notatka jest zbyt długa.")
+            raise ValueError("The notes are too long.")
         refs = payload.get("images", [])
         if not isinstance(refs, list) or len(refs) > 512:
-            raise ValueError("Zbyt wiele obrazów w szablonie.")
+            raise ValueError("Too many images in the template.")
         editor_id = payload.get("editor_id")
         editor = next((n for n in workflow["nodes"] if str(n["id"]) == str(editor_id)), None)
         if not editor or editor.get("type") != "SzandorMiniMaxH3Prompt" or prompt not in editor.get("widgets_values", []):
-            raise ValueError("Prompt szablonu nie zgadza się z edytorem w workflow.")
+            raise ValueError("The template prompt does not match the editor in the workflow.")
 
         self.root.mkdir(parents=True, exist_ok=True)
         template_id = uuid.uuid4().hex
@@ -131,7 +131,7 @@ class TemplateStore:
                     raw = stream.read(MAX_IMAGE_BYTES + 1)
                 total += len(raw)
                 if len(raw) > MAX_IMAGE_BYTES or total > MAX_TOTAL_BYTES:
-                    raise ValueError("Przekroczono limit: 128 MB na obraz lub 512 MB na szablon.")
+                    raise ValueError("Limit exceeded: 128 MB per image or 512 MB per template.")
                 digest = hashlib.sha256(raw).hexdigest()
                 filename = digest + path.suffix.lower()
                 dest = stage / "images" / filename
@@ -160,9 +160,9 @@ class TemplateStore:
     def image_path(self, template_id, filename):
         data = self.read(template_id)
         if not any(image["file"] == filename for image in data["images"]):
-            raise ValueError("Obraz nie należy do tego szablonu.")
+            raise ValueError("The image does not belong to this template.")
         if Path(filename).name != filename:
-            raise ValueError("Nieprawidłowa nazwa pliku.")
+            raise ValueError("Invalid file name.")
         return self.directory(template_id) / "images" / filename
 
     def restore(self, template_id):
@@ -172,7 +172,7 @@ class TemplateStore:
         for ref in data["images"]:
             source = self.image_path(template_id, ref["file"])
             if hashlib.sha256(source.read_bytes()).hexdigest() != ref["sha256"]:
-                raise ValueError(f"Uszkodzona kopia obrazu: {ref['original_name']}")
+                raise ValueError(f"Damaged image copy: {ref['original_name']}")
             self.target(workflow, ref)
         relative = Path("szandor_h3_templates") / template_id
         target = self.input_dir / relative
@@ -182,13 +182,15 @@ class TemplateStore:
             source = self.image_path(template_id, ref["file"])
             dest = target / ref["file"]
             # These content-addressed filenames belong to the template only.
-            with tempfile.NamedTemporaryFile(dir=target, delete=False) as stream:
-                stage = Path(stream.name)
-                try:
+            # Close the temporary file before replacing: Windows cannot move an open file.
+            stage = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=target, delete=False) as stream:
+                    stage = Path(stream.name)
                     stream.write(source.read_bytes())
-                    stream.flush()
-                    stage.replace(dest)
-                finally:
+                stage.replace(dest)
+            finally:
+                if stage is not None:
                     stage.unlink(missing_ok=True)
             node, index = self.target(workflow, ref)
             if node["type"] == "SzandorDirectoryImageLoader":

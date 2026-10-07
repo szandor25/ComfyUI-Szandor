@@ -162,7 +162,7 @@ class ModelTests(unittest.TestCase):
         with self.assertRaises(self.m.Busy):
             self.m.perform_action("unload_all", {})
         self.assertEqual(len(self.mm.current_loaded_models), 6)
-        self.assertIn("szczyt", self.m.perform_action("reset_peak", {})["message"])
+        self.assertIn("Peak", self.m.perform_action("reset_peak", {})["message"])
         self.m.recorder.busy = False
         self.server.prompt_queue.currently_running = {1: (0, "p", {}, {}, [])}
         with self.assertRaises(self.m.Busy):
@@ -171,7 +171,7 @@ class ModelTests(unittest.TestCase):
         result = self.m.perform_action("unload_model", {"id": str(id(self.vae))})
         self.assertIn("WanVAE", result["message"])
         self.assertIn("WanT5Model", self.m.perform_action("unload_kind", {"kind": "text_encoder"})["message"])
-        self.assertIn("Brak załadowanych", self.m.perform_action("unload_kind", {"kind": "text_encoder"})["message"])
+        self.assertIn("Nothing loaded", self.m.perform_action("unload_kind", {"kind": "text_encoder"})["message"])
         with self.assertRaises(ValueError):
             self.m.perform_action("unload_kind", {"kind": "nope"})
         with self.assertRaises(ValueError):
@@ -188,11 +188,11 @@ class ModelTests(unittest.TestCase):
         report = out["result"][1]
         self.assertIn("WanT5Model", report)
         self.assertIn("WanVAE", report)
-        self.assertIn("RAM ComfyUI", report)
+        self.assertIn("ComfyUI RAM", report)
         self.assertEqual([lm.model for lm in self.mm.current_loaded_models], [self.dit, self.dit_lora, self.cn, self.vision])
         self.assertEqual(self.server.prompt_queue.flags, {"free_memory": True})
         out = node.cleanup(value, False, False, False, False, False, False, False, False)
-        self.assertIn("nie zaznaczono", out["result"][1])
+        self.assertIn("no models selected", out["result"][1])
 
     def test_policy(self):
         policy = self.m.memory_policy()

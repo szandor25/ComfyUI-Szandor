@@ -31,7 +31,8 @@ class ImagePassthrough:
     RETURN_TYPES = tuple(["IMAGE"] * MAX_SLOTS)
     RETURN_NAMES = tuple([f"out_{i}" for i in range(1, MAX_SLOTS + 1)])
     FUNCTION = "passthrough"
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/Image"
+    DESCRIPTION = "Routes 1–30 in_N → out_N image pairs unchanged; unconnected outputs return an 8 × 8 black image."
 
     def passthrough(self, slot_count: int, **kwargs):
         results = []

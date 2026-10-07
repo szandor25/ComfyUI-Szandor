@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { legacyValue } from "./szandor_legacy.js";
 
 const NODE_TYPE = "SzandorMusicVideoDirector";
 const MAX_KEYFRAMES = 40;
@@ -21,8 +22,8 @@ const promptWidgetName = i => `prompt_${pad(i)}`;
 const segmentOutputName = i => `segment_${pad(i)}`;
 const videoInName = i => `video_in_${pad(i)}`;
 
-const BACKEND_LOCAL = "Lokalny workflow (bez API)";
-const isLocalBackend = node => (node.widgets?.find(w => w.name === "backend")?.value ?? "") === BACKEND_LOCAL;
+const BACKEND_LOCAL = "Local workflow (no API)";
+const isLocalBackend = node => legacyValue(NODE_TYPE, "backend", node.widgets?.find(w => w.name === "backend")?.value ?? "") === BACKEND_LOCAL;
 
 function inRect(x, y, rect) {
     return rect && x >= rect.x && x <= rect.x + rect.w && y >= rect.y && y <= rect.y + rect.h;
@@ -52,7 +53,7 @@ async function decodeAudioFile(filename) {
         audioBufferCache.set(filename, buffer);
         return buffer;
     } catch (error) {
-        console.error("[MusicVideoDirector] Nie udało się zdekodować audio:", error);
+        console.error("[MusicVideoDirector] Could not decode the audio:", error);
         audioBufferCache.set(filename, null);
         return null;
     }
@@ -76,7 +77,7 @@ async function uploadAudioFile(file) {
         if (!r.ok) return null;
         return (await r.json()).name ?? null;
     } catch (error) {
-        console.error("[MusicVideoDirector] Nie udało się wgrać audio:", error);
+        console.error("[MusicVideoDirector] Could not upload the audio:", error);
         return null;
     }
 }
@@ -157,14 +158,14 @@ function safeRemoveInput(node, index) {
         try {
             node.disconnectInput(index);
         } catch (error) {
-            console.warn(`[MusicVideoDirector] Nie udało się odłączyć wejścia ${index}:`, error);
+            console.warn(`[MusicVideoDirector] Could not disconnect input ${index}:`, error);
         }
     }
     try {
         node.removeInput(index);
         return true;
     } catch (error) {
-        console.warn(`[MusicVideoDirector] Nie udało się bezpiecznie usunąć wejścia ${index}:`, error);
+        console.warn(`[MusicVideoDirector] Could not safely remove input ${index}:`, error);
         node.inputs.splice(index, 1);
         reindexInputLinksAfterRemoval(node, index);
         node.setDirtyCanvas(true, true);
@@ -204,7 +205,7 @@ function safeRemoveOutput(node, index) {
         node.removeOutput(index);
         return true;
     } catch (error) {
-        console.warn(`[MusicVideoDirector] Nie udało się bezpiecznie usunąć wyjścia ${index}:`, error);
+        console.warn(`[MusicVideoDirector] Could not safely remove output ${index}:`, error);
         const liveLinks = getOutputLinkIds(output).filter(linkId => getGraphLink(node.graph, linkId) != null);
         if (liveLinks.length) return false;
         node.outputs.splice(index, 1);
@@ -237,7 +238,7 @@ function syncKeyframeSlots(node, count) {
         if (!w) continue;
         if (!local && i <= n) {
             w.show();
-            w._disabledNote = i === n ? "— tylko last_frame, prompt nieużywany —" : null;
+            w._disabledNote = i === n ? "— last_frame only, prompt unused —" : null;
         } else {
             w.hide();
         }
@@ -285,7 +286,7 @@ function scheduleMvdSync(node) {
         try {
             syncKeyframeSlots(node, tw.times.length);
         } catch (error) {
-            console.error("[MusicVideoDirector] Błąd synchronizacji gniazd:", error);
+            console.error("[MusicVideoDirector] Slot sync error:", error);
         }
     });
 }
@@ -305,7 +306,7 @@ function openPromptEditor(node, widget) {
         background: "#242424", boxShadow: "0 18px 55px rgba(0,0,0,.75)",
     });
     const label = document.createElement("div");
-    label.textContent = `Prompt segmentu — ${widget.name}`;
+    label.textContent = `Segment prompt — ${widget.name}`;
     label.style.cssText = "color:#ccc;font-size:12px;font-weight:bold;";
     const textarea = document.createElement("textarea");
     textarea.value = widget.value || "";
@@ -315,7 +316,7 @@ function openPromptEditor(node, widget) {
         borderRadius: "6px", fontSize: "13px", fontFamily: "inherit",
     });
     const hint = document.createElement("div");
-    hint.textContent = "Ctrl/Cmd+Enter = zapisz • Esc = anuluj • klik poza oknem = zapisz";
+    hint.textContent = "Ctrl/Cmd+Enter = save • Esc = cancel • click outside = save";
     hint.style.cssText = "color:#777;font-size:10px;";
 
     const finish = save => {
@@ -376,7 +377,7 @@ function makePromptWidget(node, idx) {
             } else {
                 const text = (this.value || "").replace(/\s+/g, " ").trim();
                 ctx.fillStyle = text ? "#ddd" : "#666";
-                const shownSrc = text || "(kliknij, aby dodać prompt segmentu)";
+                const shownSrc = text || "(click to add a segment prompt)";
                 const maxW = width - 24;
                 let shown = shownSrc;
                 while (ctx.measureText(shown).width > maxW && shown.length > 3) shown = shown.slice(0, -1);
@@ -452,7 +453,7 @@ function makeTimelineWidget(node) {
                 if (this._destroyed || filename !== this.audioFilename) return;
                 this.audioBuffer = buffer;
                 if (!buffer) {
-                    this.loadError = "Nie można zdekodować tego pliku audio w przeglądarce.";
+                    this.loadError = "This audio file cannot be decoded in the browser.";
                 } else {
                     this.peaks = computePeaks(buffer, 4000);
                     this.viewStart = 0;
@@ -583,7 +584,7 @@ function makeTimelineWidget(node) {
                 ctx.font = "12px sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
-                ctx.fillText("Kliknij ⬆ powyżej, aby wgrać audio, albo wybierz je z listy", width / 2, waveTop + WAVE_H / 2);
+                ctx.fillText("Click ⬆ above to upload audio, or pick it from the list", width / 2, waveTop + WAVE_H / 2);
             } else if (this.loadError) {
                 ctx.fillStyle = "#a55";
                 ctx.font = "11px sans-serif";
@@ -595,7 +596,7 @@ function makeTimelineWidget(node) {
                 ctx.font = "12px sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
-                ctx.fillText("Dekodowanie audio…", width / 2, waveTop + WAVE_H / 2);
+                ctx.fillText("Decoding audio…", width / 2, waveTop + WAVE_H / 2);
             } else {
                 try {
                     this._drawWaveform(ctx, width, waveTop);
@@ -603,14 +604,14 @@ function makeTimelineWidget(node) {
                     this._drawPositionBar(ctx, width, waveTop + WAVE_H);
                 } catch (error) {
                     if (!this._loggedDrawError) {
-                        console.error("[MusicVideoDirector] Błąd rysowania oscylogramu:", error);
+                        console.error("[MusicVideoDirector] Waveform drawing error:", error);
                         this._loggedDrawError = true;
                     }
                     ctx.fillStyle = "#a55";
                     ctx.font = "11px sans-serif";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
-                    ctx.fillText("Błąd rysowania — zobacz konsolę (F12)", width / 2, waveTop + WAVE_H / 2);
+                    ctx.fillText("Drawing error — see the console (F12)", width / 2, waveTop + WAVE_H / 2);
                 }
             }
 
@@ -619,7 +620,7 @@ function makeTimelineWidget(node) {
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.fillText(
-                "klik = dodaj klatkę • przeciągnij znacznik = przesuń • 2×klik = usuń • Alt+klik = przewiń audio",
+                "click = add keyframe • drag marker = move • double-click = delete • Alt+click = seek audio",
                 width / 2,
                 y + TRANSPORT_H + WAVE_H + SCROLL_H + HINT_H / 2
             );
@@ -663,7 +664,7 @@ function makeTimelineWidget(node) {
             ctx.textAlign = "left";
             const dur = this.audioBuffer?.duration ?? 0;
             const cur = this.audioEl?.currentTime ?? 0;
-            const label = this.audioFilename ? `${fmtTime(cur)} / ${fmtTime(dur)}` : "brak audio — kliknij ⬆";
+            const label = this.audioFilename ? `${fmtTime(cur)} / ${fmtTime(dur)}` : "no audio — click ⬆";
             ctx.fillText(label, 58, y + 13);
         },
 

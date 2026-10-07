@@ -47,34 +47,34 @@ function dialogueItem(prefix, language, suffix = "", detail = "") {
 
 function angleItems(ctx) {
     const items = [];
-    if (ctx.inDialogue) items.push(item("</d>", "zamknij dialog"));
-    for (const language of unique([ctx.language, "Polish", "English"])) items.push(dialogueItem("", language, "", "dialog"));
+    if (ctx.inDialogue) items.push(item("</d>", "close dialogue"));
+    for (const language of unique([ctx.language, "Polish", "English"])) items.push(dialogueItem("", language, "", "dialogue"));
     for (const kind of REFERENCE_KINDS) {
         const used = ctx.refs[kind];
-        for (const n of used) items.push(item(`<${kind} ${n}>`, "użyta"));
-        items.push(item(`<${kind} ${(used.at(-1) ?? 0) + 1}>`, used.length ? "nowa referencja" : "referencja"));
+        for (const n of used) items.push(item(`<${kind} ${n}>`, "used"));
+        items.push(item(`<${kind} ${(used.at(-1) ?? 0) + 1}>`, used.length ? "new reference" : "reference"));
     }
-    items.push(item("<scenetrans>", "dialog przez cięcie"), item("<cutoff>", "urwany końcem filmu"));
-    if (!ctx.inDialogue) items.push(item("</d>", "zamknięcie dialogu"));
+    items.push(item("<scenetrans>", "line across a cut"), item("<cutoff>", "cut off by the video end"));
+    if (!ctx.inDialogue) items.push(item("</d>", "close dialogue"));
     return items;
 }
 
 function bracketItems(ctx, afterDialogue, line) {
     const languages = LANGUAGES.includes(ctx.language) ? unique([ctx.language, ...LANGUAGES]) : [ctx.language, ...LANGUAGES];
-    const langs = languages.map(lang => item(`[${lang}] `, "język dialogu"));
-    if (afterDialogue) return [...langs, item("[unclear]", "niezrozumiały fragment")];
+    const langs = languages.map(lang => item(`[${lang}] `, "dialogue language"));
+    if (afterDialogue) return [...langs, item("[unclear]", "unintelligible span")];
     const next = (ctx.shots.at(-1) ?? 0) + 1;
     const shots = [];
-    if (next === 1) shots.push(item("[Shot 1] ", "pierwsze ujęcie"));
+    if (next === 1) shots.push(item("[Shot 1] ", "first shot"));
     else {
         const time = formatTime(ctx.nextCut);
         const prefix = `[Shot ${next}] At `;
-        shots.push(item(`${prefix}${time}, the camera cuts to `, "nowe ujęcie — popraw czas", { select: [prefix.length, prefix.length + time.length] }));
+        shots.push(item(`${prefix}${time}, the camera cuts to `, "new shot — adjust the time", { select: [prefix.length, prefix.length + time.length] }));
     }
-    for (const n of ctx.shots) shots.push(item(`[Shot ${n}]`, "odwołanie do ujęcia"));
-    const tasks = TASK_TYPES.map(type => item(`[${type}] `, "typ zadania (summary)"));
+    for (const n of ctx.shots) shots.push(item(`[Shot ${n}]`, "shot reference"));
+    const tasks = TASK_TYPES.map(type => item(`[${type}] `, "task type (summary)"));
     const summary = /^\s*summary:/.test(line);
-    return summary ? [...tasks, ...shots, ...langs] : [...shots, ...langs, item("[unclear]", "niezrozumiały fragment"), ...tasks];
+    return summary ? [...tasks, ...shots, ...langs] : [...shots, ...langs, item("[unclear]", "unintelligible span"), ...tasks];
 }
 
 function speakerItems(ctx, line) {
@@ -83,9 +83,9 @@ function speakerItems(ctx, line) {
         items.push(item("(appears in [Shot 1]): ", "retention_analysis", { select: [12, 20] }));
         if (/^\s*<Picture/.test(line)) items.push(item("([Shot 1] first frame): ", "retention_analysis", { select: [1, 9] }));
     }
-    for (const n of ctx.speakers) items.push(item(`(S${n})`, "użyty mówca"));
-    items.push(item(`(S${(ctx.speakers.at(-1) ?? 0) + 1})`, ctx.speakers.length ? "nowy mówca" : "mówca"));
-    if (ctx.speakers.length >= 2) items.push(item(`(S${ctx.speakers[0]},S${ctx.speakers[1]})`, "wspólna wypowiedź"));
+    for (const n of ctx.speakers) items.push(item(`(S${n})`, "used speaker"));
+    items.push(item(`(S${(ctx.speakers.at(-1) ?? 0) + 1})`, ctx.speakers.length ? "new speaker" : "speaker"));
+    if (ctx.speakers.length >= 2) items.push(item(`(S${ctx.speakers[0]},S${ctx.speakers[1]})`, "joint line"));
     return items;
 }
 
@@ -94,7 +94,7 @@ function speechItems(ctx, group) {
     if (group) return [dialogueItem("shout together, ", lang), dialogueItem("sing together, ", lang), dialogueItem("say together, ", lang)];
     return [
         dialogueItem("says: ", lang),
-        dialogueItem("says in an off-screen voiceover: ", lang, LIPS_CLOSED, "lektor — usta zamknięte"),
+        dialogueItem("says in an off-screen voiceover: ", lang, LIPS_CLOSED, "voiceover — lips closed"),
         dialogueItem("sings: ", lang),
         dialogueItem("shouts: ", lang),
         dialogueItem("whispers: ", lang),
@@ -108,14 +108,14 @@ function phraseItems() {
         ...CAMERA_MOVES.map(([phrase, label]) => item(`${phrase} `, label)),
         ...CAMERA_MODIFIERS.map(([phrase, label]) => item(`${phrase} `, label)),
         ...CUT_VERBS.map(([phrase, label]) => item(`${phrase} `, label)),
-        ...CONTINUITY_PHRASES.map(phrase => item(phrase, "ciągłość dźwięku")),
-        item("says in an off-screen voiceover: ", "lektor"),
-        item(LIPS_CLOSED.trim(), "po lektorze"),
-        item("the shot begins from <Picture 1>", "kotwica klatki"),
-        item("the shot's keyframe corresponds to <Picture 1>", "kotwica klatki"),
-        item("the shot ends on <Picture 1>", "kotwica klatki"),
-        item("The target video is an edited version of <Video 1>. ", "summary edycji"),
-        ...STYLES.map(style => item(`${style}, `, "styl")),
+        ...CONTINUITY_PHRASES.map(phrase => item(phrase, "audio continuity")),
+        item("says in an off-screen voiceover: ", "voiceover"),
+        item(LIPS_CLOSED.trim(), "after a voiceover"),
+        item("the shot begins from <Picture 1>", "frame anchor"),
+        item("the shot's keyframe corresponds to <Picture 1>", "frame anchor"),
+        item("the shot ends on <Picture 1>", "frame anchor"),
+        item("The target video is an edited version of <Video 1>. ", "editing summary"),
+        ...STYLES.map(style => item(`${style}, `, "style")),
     ];
 }
 
@@ -158,7 +158,7 @@ export function completionsAt(text, caret, { manual = false } = {}) {
         const task = /^(.*\+\s*)([a-z ]*)$/i.exec(m[1]);
         if (task) {
             const present = task[1].toLowerCase();
-            return result(caret, task[2], TASK_TYPES.filter(type => !present.includes(type)).map(type => item(type, "kolejny typ zadania")));
+            return result(caret, task[2], TASK_TYPES.filter(type => !present.includes(type)).map(type => item(type, "another task type")));
         }
         const afterDialogue = /<d>\s*$/.test(line.slice(0, line.length - m[0].length));
         return result(caret, m[0], bracketItems(ctx(), afterDialogue, line));
@@ -169,10 +169,10 @@ export function completionsAt(text, caret, { manual = false } = {}) {
     }
     if ((m = /^\s*<(Subject|Picture|Video|Audio) \d+>[^:\n]*:\s*([a-z_]*)$/.exec(line))) {
         const relations = m[1] === "Audio" ? AUDIO_RELATIONS : VISUAL_RELATIONS;
-        return result(caret, m[2], relations.map(rel => item(`${rel} - `, "relacja")));
+        return result(caret, m[2], relations.map(rel => item(`${rel} - `, "relation")));
     }
     if ((m = /^[a-z_]+$/.exec(line)) && (manual || m[0].length >= 2)) {
-        const res = result(caret, m[0], SECTION_NAMES.map(name => item(`${name}: `, "sekcja")));
+        const res = result(caret, m[0], SECTION_NAMES.map(name => item(`${name}: `, "section")));
         if (res || !manual) return res;
     }
     if ((m = /\((S\d+(?:,\s*S\d+)*)\)\s+([a-z]*)$/.exec(line)) && wordy(m[2])) {
@@ -180,7 +180,7 @@ export function completionsAt(text, caret, { manual = false } = {}) {
     }
     if ((m = /\b(camera|shot)\s+([a-z-]*)$/i.exec(line)) && wordy(m[2])) {
         const items = m[1].toLowerCase() === "camera"
-            ? [...CAMERA_MOVES, ["cuts to", "cięcie"]].map(([phrase, label]) => item(`${phrase} `, label))
+            ? [...CAMERA_MOVES, ["cuts to", "cut"]].map(([phrase, label]) => item(`${phrase} `, label))
             : CUT_VERBS.map(([phrase, label]) => item(`${phrase} `, label));
         return result(caret, m[2], items);
     }
@@ -201,7 +201,7 @@ export function createAutocomplete({ input, container, enabled, onFallbackEdit }
     list.className = "h3-completions";
     list.id = `h3-completions-${Math.random().toString(36).slice(2)}`;
     list.setAttribute("role", "listbox");
-    list.setAttribute("aria-label", "Podpowiedzi składni H3");
+    list.setAttribute("aria-label", "H3 syntax suggestions");
     list.hidden = true;
     const measure = document.createElement("div");
     measure.className = "h3-text h3-measure";

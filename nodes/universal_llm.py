@@ -67,17 +67,17 @@ def _parse_json_schema(schema_text):
     try:
         schema = json.loads(schema_text)
     except (ValueError, TypeError) as exc:
-        raise ValueError(f"Pole json_schema musi zawierać poprawny JSON: {exc}") from exc
+        raise ValueError(f"The json_schema field must contain valid JSON: {exc}") from exc
     if not isinstance(schema, dict) or schema.get("type") != "object":
-        raise ValueError("json_schema: główny typ musi być 'object' (wklej sam schemat, bez response_format).")
+        raise ValueError("json_schema: the root type must be 'object' (paste the schema itself, without response_format).")
     if not isinstance(schema.get("properties"), dict):
-        raise ValueError("json_schema: podaj obiekt 'properties' opisujący pola odpowiedzi.")
+        raise ValueError("json_schema: provide a 'properties' object describing the response fields.")
     if schema.get("additionalProperties") is not False:
-        raise ValueError("json_schema: ustaw additionalProperties na false dla trybu strict.")
+        raise ValueError("json_schema: set additionalProperties to false for strict mode.")
     required = schema.get("required")
     if (not isinstance(required, list) or not all(isinstance(key, str) for key in required)
             or set(required) != set(schema["properties"])):
-        raise ValueError("json_schema: required musi wymieniać wszystkie pola properties; opcjonalne pola mogą mieć typ null.")
+        raise ValueError("json_schema: required must list every properties field; optional fields can allow null.")
     return schema
 
 
@@ -86,15 +86,15 @@ def _apply_generation_options(payload, provider, model, thinking_budget, reasoni
     """Apply only controls documented for the selected provider/model."""
     profile = get_model_profile(provider, model)
     if reasoning_effort not in REASONING_EFFORTS:
-        raise ValueError(f"Nieznany reasoning_effort: {reasoning_effort}.")
+        raise ValueError(f"Unknown reasoning_effort: {reasoning_effort}.")
     if output_format not in OUTPUT_FORMATS:
-        raise ValueError(f"Nieznany output_format: {output_format}.")
+        raise ValueError(f"Unknown output_format: {output_format}.")
     if reasoning_effort != "auto":
         allowed = profile.get("efforts", ()) if profile is not None else ()
         if reasoning_effort not in allowed:
             raise ValueError(
-                f"{model}: dostępne reasoning_effort: {', '.join(('auto',) + allowed)}. "
-                "auto zachowuje ustawienie API; thinking_budget służy modelom Qwen."
+                f"{model}: available reasoning_effort: {', '.join(('auto',) + allowed)}. "
+                "auto keeps the API default; thinking_budget is for Qwen models."
             )
         effort = reasoning_effort
         if provider == "Alibaba Qwen":
@@ -120,17 +120,17 @@ def _apply_generation_options(payload, provider, model, thinking_budget, reasoni
             if reasoning_effort == "auto":
                 payload.setdefault("extra_body", {})["thinking_budget"] = thinking_budget
             else:
-                print("[UniversalLLM] thinking_budget pominięty: wybrany reasoning_effort ma pierwszeństwo.")
+                print("[UniversalLLM] thinking_budget ignored: the selected reasoning_effort takes precedence.")
         elif provider not in MODEL_PROFILES or (provider == "Alibaba Qwen" and profile is None):
             # Preserve custom OpenAI-compatible integrations already using this extension.
             payload.setdefault("extra_body", {})["thinking_budget"] = thinking_budget
         else:
-            print(f"[UniversalLLM] {model}: thinking_budget pominięty; użyj reasoning_effort.")
+            print(f"[UniversalLLM] {model}: thinking_budget ignored; use reasoning_effort.")
 
     if output_format == "text":
         return "chat"
     if profile is None:
-        raise ValueError(f"{model}: brak potwierdzonej obsługi {output_format}; wybierz output_format=text.")
+        raise ValueError(f"{model}: {output_format} support is not confirmed; choose output_format=text.")
     if output_format == "json_object":
         payload["response_format"] = {"type": "json_object"}
         payload["messages"][0]["content"] += "\n\nReturn only a valid JSON object, without Markdown fences."
@@ -170,7 +170,7 @@ def load_llm_config():
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"BĹ‚Ä…d Ĺ‚adowania config.json: {e}")
+            print(f"[UniversalLLM] Error loading config.json: {e}")
     return []
 
 def get_instruction_files():
@@ -200,7 +200,7 @@ def get_model_list():
         models = entry.get("models", {})
         for friendly_name in models.keys():
             model_display_names.append(f"{provider}: {friendly_name}")
-    return model_display_names if model_display_names else ["Brak modeli w config.json"]
+    return model_display_names if model_display_names else ["No models in config.json"]
 
 class UniversalLLMNode:
     def __init__(self):
@@ -212,37 +212,38 @@ class UniversalLLMNode:
         instructions = get_instruction_files()
         return {
             "required": {
-                "prompt": ("STRING", {"multiline": True, "default": "Witaj, co u Ciebie?"}),
+                "prompt": ("STRING", {"multiline": True, "default": "Hello, how are you?"}),
                 "selected_model": (models, {"default": models[0] if models else ""}),
                 "instruction_file": (instructions, {"default": "None"}),
-                "system_instruction_fallback": ("STRING", {"multiline": True, "default": "JesteĹ› pomocnym asystentem AI."}),
+                "system_instruction_fallback": ("STRING", {"multiline": True, "default": "You are a helpful AI assistant."}),
                 "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0, "step": 0.01}),
                 "max_tokens": ("INT", {"default": 1024, "min": 1, "max": 393216,
-                    "tooltip": "Limit odpowiedzi (dla OpenAI/DeepSeek także rozumowania). Limity zależą od modelu; Astra/GPT-5.6: 128000, GPT-4o: 16384."}),
+                    "tooltip": "Response limit (for OpenAI/DeepSeek it also covers reasoning). Limits depend on the model; Astra/GPT-5.6: 128000, GPT-4o: 16384."}),
             },
             "optional": {
                 "thinking_budget": ("INT", {"default": 0, "min": 0, "max": 16000, "step": 128,
-                    "tooltip": "Budżet myślenia Qwen; 0 = domyślny. Działa przy reasoning_effort=auto. OpenAI, DeepSeek i Grok go pomijają."}),
+                    "tooltip": "Qwen thinking budget; 0 = default. Works with reasoning_effort=auto. OpenAI, DeepSeek and Grok ignore it."}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "reasoning_effort": (REASONING_EFFORTS, {"default": "auto",
-                    "tooltip": "auto = domyślne API. Astra: low–max; GPT-5.6: none–max; GPT-4o i Grok 4-1: auto; Qwen 3.7: auto/none. Szczegóły w docs/universal_llm.md."}),
+                    "tooltip": "auto = API default. Astra: low–max; GPT-5.6: none–max; GPT-4o and Grok 4-1: auto; Qwen 3.7: auto/none. Details in docs/universal_llm.md."}),
                 "output_format": (OUTPUT_FORMATS, {"default": "text",
-                    "tooltip": "text = zwykła odpowiedź; json_object = poprawny JSON; json_schema = struktura z pola poniżej. DeepSeek używa Responses dla json_schema."}),
+                    "tooltip": "text = plain answer; json_object = valid JSON; json_schema = the structure from the field below. DeepSeek uses Responses for json_schema."}),
                 "json_schema": ("STRING", {"multiline": True, "default": DEFAULT_JSON_SCHEMA,
-                    "tooltip": "Sam JSON Schema; używany tylko dla output_format=json_schema. Główny typ object, wszystkie pola w required, additionalProperties=false."}),
+                    "tooltip": "The JSON Schema itself; used only with output_format=json_schema. Root type object, every field in required, additionalProperties=false."}),
             }
         }
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("text_output",)
     FUNCTION = "generate"
-    CATEGORY = "LLM/Universal"
+    CATEGORY = "Szandor/LLM"
+    DESCRIPTION = "Text generation through OpenAI, DeepSeek, X.AI (Grok) or Alibaba Qwen, configured in config.json."
 
     def generate(self, prompt, selected_model, instruction_file, system_instruction_fallback,
                  temperature, max_tokens, thinking_budget=0, seed=0, reasoning_effort="auto",
                  output_format="text", json_schema=DEFAULT_JSON_SCHEMA):
         if ": " not in selected_model:
-            return ("Błąd: Musisz skonfigurować config.json i zrestartować ComfyUI.",)
+            return ("Error: configure config.json and restart ComfyUI.",)
 
         # 1. Parsowanie wyboru
         provider_name, friendly_name = selected_model.split(": ", 1)
@@ -250,12 +251,12 @@ class UniversalLLMNode:
         provider_data = next((item for item in config if item["provider"] == provider_name), None)
 
         if not provider_data:
-            return (f"BĹ‚Ä…d: Nie znaleziono dostawcy {provider_name}",)
+            return (f"Error: provider not found: {provider_name}",)
 
         # 2. API Key
         api_key = os.getenv(provider_data["env_key"])
         if not api_key:
-            return (f"BĹ‚Ä…d: Brak klucza {provider_data['env_key']} w zmiennych Ĺ›rodowiskowych",)
+            return (f"Error: the {provider_data['env_key']} key is not set in the environment",)
 
         # 3. System Instruction
         final_system = system_instruction_fallback
@@ -265,17 +266,17 @@ class UniversalLLMNode:
                 with open(file_path, "r", encoding="utf-8") as f:
                     final_system = f.read().strip()
             except Exception as e:
-                print(f"BĹ‚Ä…d czytania pliku instrukcji: {e}")
+                print(f"[UniversalLLM] Error reading the instruction file: {e}")
 
-        # 4. WywoĹ‚anie API
+        # 4. API call
         try:
             real_model_id = provider_data["models"][friendly_name]
             profile = get_model_profile(provider_name, real_model_id)
             token_limit = profile.get("max_tokens", 393216) if profile is not None else 393216
             if not 1 <= max_tokens <= token_limit:
-                return (f"Błąd ustawień: {real_model_id}: max_tokens musi być w zakresie 1–{token_limit}.",)
+                return (f"Settings error: {real_model_id}: max_tokens must be within 1–{token_limit}.",)
             if not 0 <= thinking_budget <= 16000:
-                return ("Błąd ustawień: thinking_budget musi być w zakresie 0–16000.",)
+                return ("Settings error: thinking_budget must be within 0–16000.",)
 
             payload = {
                 "model": real_model_id,
@@ -309,7 +310,7 @@ class UniversalLLMNode:
             start_time = time.time()
             if api_mode == "responses":
                 if not hasattr(client, "responses"):
-                    raise RuntimeError("JSON Schema dla DeepSeek wymaga nowszego pakietu openai. Zaktualizuj zależności noda.")
+                    raise RuntimeError("JSON Schema for DeepSeek needs a newer openai package. Update the node dependencies.")
                 completion = client.responses.create(**_responses_payload(payload))
                 if getattr(completion, "error", None):
                     raise RuntimeError(f"Responses API: {completion.error}")
@@ -317,8 +318,8 @@ class UniversalLLMNode:
                 if status != "completed":
                     details = getattr(completion, "incomplete_details", None)
                     raise RuntimeError(
-                        f"Odpowiedź JSON nie została ukończona: {status}, {details}. "
-                        "Jeśli osiągnięto max_output_tokens, zwiększ max_tokens."
+                        f"The JSON response was not completed: {status}, {details}. "
+                        "If max_output_tokens was reached, increase max_tokens."
                     )
                 content = completion.output_text or ""
                 finish_reason = status
@@ -328,21 +329,21 @@ class UniversalLLMNode:
                 choice = completion.choices[0]
                 refusal = getattr(choice.message, "refusal", None)
                 if refusal:
-                    raise RuntimeError(f"Model odmówił odpowiedzi: {refusal}")
+                    raise RuntimeError(f"The model refused to answer: {refusal}")
                 content = choice.message.content or ""
                 finish_reason = getattr(choice, "finish_reason", None)
                 details_key, input_key, output_key = "completion_tokens_details", "prompt_tokens", "completion_tokens"
             elapsed = time.time() - start_time
 
             usage = getattr(completion, "usage", None)
-            usage_info = "brak danych o zużyciu tokenów"
+            usage_info = "no token usage data"
             if usage:
                 details = getattr(usage, details_key, None)
                 reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
-                reasoning_part = f", w tym reasoning={reasoning_tokens}" if reasoning_tokens else ""
+                reasoning_part = f", incl. reasoning={reasoning_tokens}" if reasoning_tokens else ""
                 usage_info = (
                     f"prompt={getattr(usage, input_key)} completion={getattr(usage, output_key)}"
-                    f"{reasoning_part} total={usage.total_tokens} tokenów"
+                    f"{reasoning_part} total={usage.total_tokens} tokens"
                 )
 
             print(
@@ -353,24 +354,24 @@ class UniversalLLMNode:
             if output_format != "text":
                 if finish_reason not in ("stop", "completed"):
                     raise RuntimeError(
-                        f"Niekompletna odpowiedź JSON: finish_reason={finish_reason}. "
-                        "Jeśli osiągnięto limit tokenów, zwiększ max_tokens."
+                        f"Incomplete JSON response: finish_reason={finish_reason}. "
+                        "If the token limit was reached, increase max_tokens."
                     )
                 try:
                     parsed = json.loads(content)
                 except ValueError as exc:
-                    raise RuntimeError("Model nie zwrócił poprawnego JSON.") from exc
+                    raise RuntimeError("The model did not return valid JSON.") from exc
                 if not isinstance(parsed, dict):
-                    raise RuntimeError("Model nie zwrócił obiektu JSON.")
+                    raise RuntimeError("The model did not return a JSON object.")
 
             # Modele rozumujące (GPT-6 Astra / GPT-5 / "o") zużywają część max_completion_tokens
             # na wewnętrzne, niewidoczne rozumowanie. Gdy limit się wyczerpie zanim model
             # wygeneruje właściwą treść, content wraca puste mimo poprawnej odpowiedzi API.
             if not content and finish_reason == "length":
                 warning = (
-                    f"[UniversalLLM] Pusta odpowiedź: model {friendly_name} wyczerpał limit tokenów "
-                    f"({max_tokens}) zanim wygenerował treść — prawdopodobnie zużył go na wewnętrzne "
-                    f"rozumowanie. Zwiększ wartość 'max_tokens' w nodzie i spróbuj ponownie."
+                    f"[UniversalLLM] Empty response: model {friendly_name} used up the token limit "
+                    f"({max_tokens}) before producing content — probably on internal reasoning. "
+                    f"Increase 'max_tokens' in the node and try again."
                 )
                 print(warning)
                 content = warning
@@ -378,9 +379,9 @@ class UniversalLLMNode:
             return (content,)
 
         except ValueError as e:
-            return (f"Błąd ustawień {provider_name}: {e}",)
+            return (f"Settings error {provider_name}: {e}",)
         except Exception as e:
-            return (f"Błąd API {provider_name}: {e}",)
+            return (f"API error {provider_name}: {e}",)
 
 NODE_CLASS_MAPPINGS = {"UniversalLLMNode": UniversalLLMNode}
-NODE_DISPLAY_NAME_MAPPINGS = {"UniversalLLMNode": "Universal LLM Gateway Pro"}
+NODE_DISPLAY_NAME_MAPPINGS = {"UniversalLLMNode": "Universal LLM Gateway Pro (Szandor)"}

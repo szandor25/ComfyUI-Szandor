@@ -96,7 +96,7 @@ class TemplateStoreTests(unittest.TestCase):
     def test_corrupted_copy_is_reported_before_restore(self):
         saved = self.store.save(self.payload)
         self.store.image_path(saved["id"], saved["images"][0]["file"]).write_bytes(b"corrupted")
-        with self.assertRaisesRegex(ValueError, "Uszkodzona"):
+        with self.assertRaisesRegex(ValueError, "Damaged"):
             self.store.restore(saved["id"])
         self.assertFalse((self.root / "input" / "szandor_h3_templates").exists())
 
@@ -142,7 +142,10 @@ class TemplateStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.delete("../input")
         alias = "b" * 32
-        self.store.directory(alias).symlink_to(self.store.directory(saved["id"]), target_is_directory=True)
+        try:
+            self.store.directory(alias).symlink_to(self.store.directory(saved["id"]), target_is_directory=True)
+        except OSError as error:  # Windows without Developer Mode / admin rights.
+            self.skipTest(f"cannot create symlinks here: {error}")
         with self.assertRaises(ValueError):
             self.store.delete(alias)
         self.assertTrue(self.store.directory(saved["id"]).exists())

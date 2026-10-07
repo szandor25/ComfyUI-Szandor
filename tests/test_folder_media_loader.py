@@ -113,20 +113,20 @@ class ScanAndPromptTests(unittest.TestCase):
         self.assertIn("start_time", info["warning"])
         (self.dir / "e.json").write_text(json.dumps({"start_time": 8, "end_time": 3}))
         info = self.m.resolve_item(str(self.dir), {"name": "e", "json": "e.json"}, 5)
-        self.assertEqual((info["time"], info["time_source"]), (5.0, "domyślny"))
-        self.assertIn("mniejszy", info["warning"])
+        self.assertEqual((info["time"], info["time_source"]), (5.0, "default"))
+        self.assertIn("less than", info["warning"])
 
     def test_txt_with_bom_and_default_time(self):
         (self.dir / "b.txt").write_bytes("﻿Zażółć\nlinia 2".encode("utf-8"))
         info = self.m.resolve_item(str(self.dir), {"name": "b", "txt": "b.txt"}, 3.5)
-        self.assertEqual((info["prompt"], info["time"], info["time_source"]), ("Zażółć\nlinia 2", 3.5, "domyślny"))
+        self.assertEqual((info["prompt"], info["time"], info["time_source"]), ("Zażółć\nlinia 2", 3.5, "default"))
 
     def test_bad_json_reports_warning_and_keeps_txt(self):
         (self.dir / "c.txt").write_text("txt prompt", encoding="utf-8")
         (self.dir / "c.json").write_text("{nope", encoding="utf-8")
         info = self.m.resolve_item(str(self.dir), {"name": "c", "txt": "c.txt", "json": "c.json"}, 5)
         self.assertEqual(info["prompt"], "txt prompt")
-        self.assertIn("Niepoprawny JSON", info["warning"])
+        self.assertIn("Invalid JSON", info["warning"])
 
     def test_parse_time(self):
         p = self.m.parse_time
@@ -135,13 +135,15 @@ class ScanAndPromptTests(unittest.TestCase):
 
     def test_format_time(self):
         f = self.m.format_time
-        self.assertEqual(f(5.5, "liczba"), 5.5)
-        self.assertIsInstance(f(5, "liczba"), float)
-        self.assertEqual([f(5.5, "tekst: sekundy"), f(5, "tekst: sekundy"), f(0.125, "tekst: sekundy")], ["5.5", "5", "0.125"])
-        self.assertEqual(f(65.25, "tekst: mm:ss.mmm"), "01:05.250")
-        self.assertEqual(f(3725.5, "tekst: hh:mm:ss.mmm"), "01:02:05.500")
+        self.assertEqual(f(5.5, "number"), 5.5)
+        self.assertIsInstance(f(5, "number"), float)
+        self.assertEqual([f(5.5, "text: seconds"), f(5, "text: seconds"), f(0.125, "text: seconds")], ["5.5", "5", "0.125"])
+        self.assertEqual(f(65.25, "text: mm:ss.mmm"), "01:05.250")
+        self.assertEqual(f(3725.5, "text: hh:mm:ss.mmm"), "01:02:05.500")
         for mode in self.m.TIME_OUTPUTS[1:]:
             self.assertAlmostEqual(self.m.parse_time(f(3725.5, mode)), 3725.5)
+        # Workflows saved by the Polish version keep working.
+        self.assertEqual([f(5.5, "liczba"), f(65.25, "tekst: mm:ss.mmm")], [5.5, "01:05.250"])
 
     def test_seed_index_wraps(self):
         self.assertEqual([self.m.pick_index(s, 3) for s in (0, 1, 3, 7)], [0, 1, 0, 1])
@@ -205,7 +207,7 @@ class LoadTests(unittest.TestCase):
         write_wav(self.dir / "03_aud.wav")
         self.node = self.m.SzandorFolderMediaLoader()
 
-    def run_node(self, seed, used=(0, 1, 2, 3, 4), media_filter="wszystko"):
+    def run_node(self, seed, used=(0, 1, 2, 3, 4), media_filter="all"):
         prompt = {"9": {"inputs": {f"in{i}": ["1", i] for i in used}}}
         return self.node.load(str(self.dir), seed, media_filter, 5.0, 24.0, prompt=prompt, unique_id="1")["result"]
 
@@ -236,27 +238,32 @@ class LoadTests(unittest.TestCase):
         self.assertEqual(prompt, "")
 
     def test_connected_video_without_file_raises(self):
-        with self.assertRaisesRegex(ValueError, "nie ma pliku wideo"):
+        with self.assertRaisesRegex(ValueError, "has no video file"):
             self.run_node(0)
 
     def test_time_output_as_text(self):
         (self.dir / "01_img.json").write_text(json.dumps({"start_time": 2, "end_time": 7.5}), encoding="utf-8")
-        result = self.node.load(str(self.dir), 0, "wszystko", 5.0, 24.0, "tekst: mm:ss.mmm",
+        result = self.node.load(str(self.dir), 0, "all", 5.0, 24.0, "text: mm:ss.mmm",
                                 prompt={}, unique_id="1")["result"]
         self.assertEqual((result[4], result[5], result[10], result[11]), ("00:05.500", 132, "00:02.000", "00:07.500"))
         self.assertIn("STRING", self.m.SzandorFolderMediaLoader.RETURN_TYPES[4].split(","))
 
     def test_filter_changes_count(self):
-        *_, name, index, count, _start, _end = self.run_node(0, media_filter="wideo")
+        *_, name, index, count, _start, _end = self.run_node(0, media_filter="videos")
         self.assertEqual((name, index, count), ("02_vid", 0, 1))
 
     def test_validate_and_is_changed(self):
         cls = self.m.SzandorFolderMediaLoader
-        self.assertTrue(cls.VALIDATE_INPUTS(str(self.dir), "wszystko"))
-        self.assertIn("nie istnieje", cls.VALIDATE_INPUTS(str(self.dir / "missing"), "wszystko"))
-        a = cls.IS_CHANGED(str(self.dir), 0, "wszystko", 5.0, 24.0)
-        self.assertNotEqual(a, cls.IS_CHANGED(str(self.dir), 1, "wszystko", 5.0, 24.0))
-        self.assertEqual(a, cls.IS_CHANGED(str(self.dir), 0, "wszystko", 5.0, 24.0))
+        self.assertTrue(cls.VALIDATE_INPUTS(str(self.dir), "all"))
+        self.assertIn("does not exist", cls.VALIDATE_INPUTS(str(self.dir / "missing"), "all"))
+        self.assertTrue(cls.VALIDATE_INPUTS(str(self.dir), "wszystko", "tekst: sekundy"))
+        self.assertIn("Unknown media_filter", cls.VALIDATE_INPUTS(str(self.dir), "nonsense"))
+        self.assertIn("Unknown time_output", cls.VALIDATE_INPUTS(str(self.dir), "all", "nonsense"))
+        self.assertEqual(self.m.filter_items([{"name": "a", "image": "a.png"}, {"name": "b", "txt": "b.txt"}], "obrazy"),
+                         [{"name": "a", "image": "a.png"}])
+        a = cls.IS_CHANGED(str(self.dir), 0, "all", 5.0, 24.0)
+        self.assertNotEqual(a, cls.IS_CHANGED(str(self.dir), 1, "all", 5.0, 24.0))
+        self.assertEqual(a, cls.IS_CHANGED(str(self.dir), 0, "all", 5.0, 24.0))
 
 
 @unittest.skipIf(av is None, "PyAV not installed")
@@ -268,7 +275,7 @@ class SaveAsSourceTests(unittest.TestCase):
         self.out = Path(self.temp.name)
         self.node = self.m.SzandorSaveAsSource()
 
-    def save(self, name="ujecie01", on_exists="numeruj", **kw):
+    def save(self, name="ujecie01", on_exists="increment", **kw):
         return self.node.save(name, kw.pop("enabled", True), str(self.out), kw.pop("suffix", ""),
                               on_exists, kw.pop("image_format", "png"), **kw)["result"][0]
 
@@ -303,9 +310,12 @@ class SaveAsSourceTests(unittest.TestCase):
         image = torch.rand((1, 4, 4, 3))
         paths = self.save("a", image=image, prompt="new").splitlines()
         self.assertEqual(sorted(Path(p).name for p in paths), ["a_2.png", "a_2.txt"])
-        self.assertEqual(self.save("a", on_exists="pomiń", prompt="x"), "")
-        self.save("a", on_exists="nadpisz", prompt="over")
+        self.assertEqual(self.save("a", on_exists="skip", prompt="x"), "")
+        self.save("a", on_exists="overwrite", prompt="over")
         self.assertEqual((self.out / "a.txt").read_text(), "over")
+        self.assertEqual(self.save("a", on_exists="pomiń", prompt="legacy"), "")
+        self.assertTrue(self.m.SzandorSaveAsSource.VALIDATE_INPUTS("nadpisz"))
+        self.assertIn("Unknown on_exists", self.m.SzandorSaveAsSource.VALIDATE_INPUTS("nonsense"))
 
     def test_batch_suffix_and_unsafe_name(self):
         paths = self.save("../x.png", suffix="_gen", image=torch.rand((2, 4, 4, 3)), image_format="jpg")

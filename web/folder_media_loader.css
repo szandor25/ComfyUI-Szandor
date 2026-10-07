@@ -27,6 +27,7 @@
 .szandor-fml .fml-stage img, .szandor-fml .fml-stage video {
     display: block; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain;
 }
+.szandor-fml .fml-stage img[hidden], .szandor-fml .fml-placeholder[hidden], .szandor-fml .fml-play[hidden] { display: none; }
 .szandor-fml .fml-placeholder { color: #6f7a8d; text-align: center; padding: 8px; }
 .szandor-fml .fml-placeholder big { display: block; font-size: 34px; line-height: 1.2; }
 .szandor-fml .fml-play {
@@ -43,13 +44,41 @@
 .szandor-fml .fml-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; flex-shrink: 0; font-size: 11px; color: #a9b5c9; }
 .szandor-fml .fml-name { color: #e8edf5; font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .szandor-fml .fml-time { color: #ffc879; }
-.szandor-fml .fml-prompt {
-    flex: 0 1 28%; min-height: 34px; overflow: auto; margin: 0; padding: 5px 7px;
-    white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; cursor: text;
-    font: 11px/1.45 ui-monospace, Consolas, monospace; color: #cfd8e6;
+.szandor-fml .fml-prompt-box {
+    display: flex; flex-direction: column; flex: 0 1 32%; min-height: 60px; overflow: hidden;
     background: #10131a; border: 1px solid #2d3340; border-radius: 5px;
 }
+.szandor-fml.fml-prompt-expanded .fml-prompt-box { flex: 1 1 65%; }
+.szandor-fml.fml-prompt-expanded .fml-stage { flex: 1 1 35%; }
+.szandor-fml .fml-prompt-bar {
+    display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-width: 0;
+    padding: 3px 4px 3px 7px; border-bottom: 1px solid #2d3340; font-size: 10px; color: #8490a5;
+}
+.szandor-fml .fml-prompt-source { font-weight: 600; letter-spacing: .04em; color: #a8baff; white-space: nowrap; }
+.szandor-fml .fml-prompt-stats { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.szandor-fml .fml-prompt-issues { color: #ffb35c; cursor: help; white-space: nowrap; }
+.szandor-fml .fml-prompt-issues[hidden] { display: none; }
+.szandor-fml .fml-prompt-button { padding: 1px 6px; font-size: 10px; }
+.szandor-fml .fml-prompt-button[aria-pressed="true"] { border-color: #8bc9ff; color: #ffffff; }
+.szandor-fml .fml-prompt {
+    flex: 1 1 auto; min-height: 0; overflow: auto; margin: 0; padding: 5px 7px;
+    white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; cursor: text;
+    font: 11px/1.5 ui-monospace, Consolas, monospace; color: #cfd8e6;
+}
 .szandor-fml .fml-prompt.fml-empty { color: #6f7a8d; font-style: italic; }
+/* Same token colors as the MiniMax H3 Prompt Editor. */
+.szandor-fml .fml-prompt .h3-section { color: #a8baff; font-weight: 700; }
+.szandor-fml .fml-prompt .h3-shot { color: #ffc879; font-weight: 700; }
+.szandor-fml .fml-prompt .h3-time { color: #ffc879; }
+.szandor-fml .fml-prompt .h3-dialogue { color: #73e0ba; }
+.szandor-fml .fml-prompt .h3-spoken { color: #b9f3dc; }
+.szandor-fml .fml-prompt .h3-bracket { color: #e2c684; }
+.szandor-fml .fml-prompt .h3-reference { color: #8bc9ff; }
+.szandor-fml .fml-prompt .h3-speaker { color: #e0acff; }
+.szandor-fml .fml-prompt .h3-boundary { color: #ffabbf; }
+.szandor-fml .fml-prompt .h3-relation { color: #8dd6d4; }
+.szandor-fml .fml-prompt .h3-tag { color: #a1a9b8; }
+.szandor-fml .fml-prompt .h3-error { text-decoration: underline wavy #ff7d89; text-underline-offset: 3px; }
 .szandor-fml .fml-status { flex-shrink: 0; font-size: 11px; color: #8490a5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .szandor-fml .fml-status.fml-warn { color: #ffb35c; }
 .szandor-fml .fml-queue-all { color: #73e0ba; }

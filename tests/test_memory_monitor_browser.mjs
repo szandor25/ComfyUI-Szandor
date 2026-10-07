@@ -39,7 +39,7 @@ const history = { serial: 1, runs: [{
     ],
 }] };
 const actions = [];
-let actionReply = { status: 200, body: { message: "Wyładowano z VRAM: WanT5Model", freed: 9.8 * GB } };
+let actionReply = { status: 200, body: { message: "Unloaded from VRAM: WanT5Model", freed: 9.8 * GB } };
 let statsRequests = 0;
 
 const html = `<!doctype html><html><head><meta charset="UTF-8"></head>
@@ -55,7 +55,7 @@ class Host {
   }
   setSize(size) { this.size = size; }
 }
-const extension = app.extensions[0];
+const extension = app.extensions.find(e => e.name === 'Szandor.MemoryMonitor');
 class Monitor extends Host { constructor() { super('SzandorMemoryMonitor'); } }
 class Cleanup extends Host { constructor() { super('SzandorMemoryCleanup'); } }
 extension.beforeRegisterNodeDef(Monitor, { name: 'SzandorMemoryMonitor' });
@@ -156,12 +156,12 @@ try {
     await waitFor("q('.mem-strong').textContent === 'Test GPU 96GB'", "gpu name");
     assert.match(await evaluate("q('.mem-strong').nextSibling.textContent"), /97% · 71°C/);
     const legends = await evaluate("[...monitor.element.querySelectorAll('.mem-page:not([hidden]) .mem-legend')].map(e => e.textContent)");
-    assert.match(legends[0], /^VRAM 61\.0 GB \/ 96\.0 GB · allocated 52\.0 GB · cache 6\.0 GB · inne 3\.0 GB$/);
+    assert.match(legends[0], /^VRAM 61\.0 GB \/ 96\.0 GB · allocated 52\.0 GB · cache 6\.0 GB · other 3\.0 GB$/);
     assert.match(legends[1], /RAM 67\.0 GB \/ 128\.0 GB · ComfyUI 41\.0 GB · swap 2\.0 GB · pinned 3\.0 GB/);
     assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-cell b')].map(e => e.textContent)"), ["52.0 GB", "58.0 GB", "73.0 GB", "35.0 GB"]);
     assert.equal(await evaluate("q('.mem-policy').textContent"), "HIGH_VRAM");
     assert.match(await evaluate("q('.mem-policy').title"), /--highvram/);
-    assert.equal(await evaluate("q('.mem-chip').textContent"), "bezczynny");
+    assert.equal(await evaluate("q('.mem-chip').textContent"), "idle");
     await screenshot("live");
 
     // Models: sorted by kind, partial load bar, per-model and per-kind unload.
@@ -171,13 +171,13 @@ try {
         ["WAN22_T2V", "WanT5Model", "WanVAE"]);
     assert.match(await evaluate("monitor.element.querySelector('.mem-table tbody tr').cells[4].textContent"), /20\.0 GB · 70%/);
     assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-table tbody tr')[2].querySelector('button').disabled"), true);
-    assert.equal(await evaluate("monitor.element.querySelector('.mem-tabs button:nth-child(2)').textContent"), "Modele (3)");
+    assert.equal(await evaluate("monitor.element.querySelector('.mem-tabs button:nth-child(2)').textContent"), "Models (3)");
     await screenshot("models");
     await evaluate("monitor.element.querySelectorAll('.mem-table tbody tr')[1].querySelector('button').click()");
-    await waitFor("q('.mem-message').textContent.includes('zwolniono 9.8 GB')", "unload message");
+    await waitFor("q('.mem-message').textContent.includes('freed 9.8 GB')", "unload message");
     assert.deepEqual(actions.at(-1), { action: "unload_model", id: "11" });
     assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-page:not([hidden]) .mem-actions button')].map(b => b.textContent)"),
-        ["⏏ modele dyfuzji", "⏏ text encodery"]);
+        ["⏏ diffusion models", "⏏ text encoders"]);
     await evaluate("monitor.element.querySelector('.mem-page:not([hidden]) .mem-actions button').click()");
     for (let i = 0; i < 100 && actions.length < 2; i++) await new Promise(r => setTimeout(r, 50));
     assert.deepEqual(actions.at(-1), { action: "unload_kind", kind: "diffusion" });
@@ -185,20 +185,20 @@ try {
     // Busy: unloading disabled, server refusal shown as a warning.
     stats.busy = true;
     stats.current = { node: "3", display_node: "3", class_type: "KSampler", title: "", elapsed: 12.3, start: { allocated: 40 * GB }, peak_allocated: 70 * GB };
-    await waitFor("q('.mem-chip').textContent === '▶ zadanie'", "busy chip");
+    await waitFor("q('.mem-chip').textContent === '▶ job'", "busy chip");
     assert.equal(await evaluate("monitor.element.querySelector('.mem-table tbody tr button').disabled"), true);
     await evaluate("tab(0)");
     await waitFor("!q('.mem-current').hidden", "current node");
-    assert.equal(await evaluate("q('.mem-current').textContent"), "▶ KSampler #3 · 12.3 s · start 40.0 GB · teraz 52.0 GB · szczyt 70.0 GB · Δ +12.0 GB");
-    assert.equal(await evaluate("[...monitor.element.querySelectorAll('.mem-actions button')].find(b => b.textContent.startsWith('Opróżnij')).disabled"), true);
+    assert.equal(await evaluate("q('.mem-current').textContent"), "▶ KSampler #3 · 12.3 s · start 40.0 GB · now 52.0 GB · peak 70.0 GB · Δ +12.0 GB");
+    assert.equal(await evaluate("[...monitor.element.querySelectorAll('.mem-actions button')].find(b => b.textContent.startsWith('Empty')).disabled"), true);
     actionReply = { status: 409, body: { error: "Trwa wykonywanie zadania" } };
-    await evaluate("[...monitor.element.querySelectorAll('.mem-actions button')].find(b => b.textContent === 'Reset szczytu').click()");
+    await evaluate("[...monitor.element.querySelectorAll('.mem-actions button')].find(b => b.textContent === 'Reset peak').click()");
     await waitFor("q('.mem-message').classList.contains('mem-warn')", "busy warning");
     assert.match(await evaluate("q('.mem-message').textContent"), /Trwa wykonywanie/);
     stats.busy = false;
     stats.current = null;
     actionReply = { status: 200, body: { message: "ok" } };
-    await evaluate("window.confirmAnswer = false; [...monitor.element.querySelectorAll('.mem-actions button')].find(b => b.textContent.includes('Wyczyść')).click()");
+    await evaluate("window.confirmAnswer = false; [...monitor.element.querySelectorAll('.mem-actions button')].find(b => b.textContent.includes('Clear')).click()");
     const before = actions.length;
     await new Promise(r => setTimeout(r, 200));
     assert.equal(actions.length, before);
@@ -210,25 +210,25 @@ try {
     assert.deepEqual(rows[0], ["1", "Prompt #4", "10.0 GB", "12.0 GB", "11.0 GB", "+1.0 GB", "0", "2.00 s"]);
     assert.deepEqual(rows[1], ["2", "KSampler #3", "11.0 GB", "45.0 GB", "27.0 GB", "+16.0 GB", "+2.0 GB", "36.0 s"]);
     assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-run-table tr.mem-top').length"), 1);
-    assert.match(await evaluate("q('.mem-page:not([hidden]) .mem-line.mem-dim').textContent"), /Czas 40\.0 s · węzłów 2 · z cache 1 · szczyt 45\.0 GB/);
+    assert.match(await evaluate("q('.mem-page:not([hidden]) .mem-line.mem-dim').textContent"), /Time 40\.0 s · 2 nodes · 1 cached · peak 45\.0 GB/);
     await evaluate("const m = monitor.element.querySelectorAll('.mem-run-select ~ select')[0]; m.value = 'device'; m.dispatchEvent(new Event('change'))");
     assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-run-table tbody tr')[1].cells[3].textContent"), "60.0 GB");
     await evaluate("const m2 = monitor.element.querySelectorAll('.mem-run-select ~ select')[0]; m2.value = 'allocated'; m2.dispatchEvent(new Event('change'))");
     // Hover over the chart highlights the node under the cursor.
     await evaluate(`(() => { const c = q('.mem-chart-run'); const r = c.getBoundingClientRect();
       c.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left + r.width * 0.6, clientY: r.top + 20, bubbles: true })); })()`);
-    assert.match(await evaluate("q('.mem-hover').textContent"), /KSampler #3 · karta/);
+    assert.match(await evaluate("q('.mem-hover').textContent"), /KSampler #3 · device/);
     assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-run-table tr.mem-hover-row').length"), 1);
     await screenshot("runs");
     const csv = await evaluate("import('/web/memory_monitor.js').then(m => m.runToCsv(window.__run ?? null)).catch(e => String(e))".replace("window.__run ?? null", JSON.stringify(history.runs[0])));
     const lines = csv.split("\r\n");
-    assert.ok(lines[0].startsWith("﻿lp;wezel;typ;alloc_start_gb"));
+    assert.ok(lines[0].startsWith("﻿no;node;type;alloc_start_gb"));
     assert.equal(lines[2].split(";").slice(0, 7).join(";"), '2;"KSampler #3";"KSampler";11,000;45,000;27,000;16,000');
     assert.equal(lines[2].split(";").at(-1), "36,000");
 
     // Cleanup node shows its report; removing the monitor stops polling.
-    await evaluate("cleanup.onExecuted({ szandor_memory: ['Wyładowano: WanT5Model'] })");
-    assert.equal(await evaluate("cleanup.element.textContent"), "Wyładowano: WanT5Model");
+    await evaluate("cleanup.onExecuted({ szandor_memory: ['Unloaded: WanT5Model'] })");
+    assert.equal(await evaluate("cleanup.element.textContent"), "Unloaded: WanT5Model");
     await evaluate("monitor.onRemoved()");
     const count = statsRequests;
     await new Promise(r => setTimeout(r, 1200));

@@ -7,17 +7,17 @@ export function captureTemplate(app, editor, prompt) {
     const workflow = JSON.parse(JSON.stringify(graph.serialize()));
     const savedEditor = workflow.nodes.find(n => String(n.id) === String(editor.id) && n.type === "SzandorMiniMaxH3Prompt");
     if (!savedEditor || editor.graph !== graph) {
-        throw new Error("Przed zapisem szablonu przenieś edytor z podgrafu do głównego workflow.");
+        throw new Error("Move the editor out of the subgraph into the main workflow before saving a template.");
     }
     // Some hosts serialize DOM widgets after graph.serialize(). Keep the exact current text.
     const promptIndex = editor.widgets.findIndex(w => w.name === "prompt");
-    if (promptIndex < 0) throw new Error("Nie znaleziono pola promptu.");
+    if (promptIndex < 0) throw new Error("Prompt field not found.");
     savedEditor.widgets_values[promptIndex] = prompt;
     const images = [];
     const warnings = [];
     for (const definition of workflow.definitions?.subgraphs ?? []) {
         if (definition.nodes?.some(n => IMAGE_LOADERS.has(n.type) || n.outputs?.some(o => ["IMAGE", "AUDIO", "VIDEO"].includes(o.type)))) {
-            throw new Error("Workflow zawiera media w podgrafie. Rozwiń podgraf przed zapisem, aby zachować pliki referencyjne.");
+            throw new Error("The workflow has media inside a subgraph. Unpack the subgraph before saving to keep the reference files.");
         }
     }
     for (const saved of workflow.nodes) {
@@ -37,14 +37,14 @@ export function captureTemplate(app, editor, prompt) {
             const fileField = /^(image|image_\d+|filename|file|path|image_path)$/i.test(widget.name);
             if (!fileField || (!isLoader && !hasImageOutput)) return;
             if (node.inputs?.some(input => input.widget?.name === widget.name && input.link != null)) {
-                throw new Error(`Pole obrazu w nodzie „${node.title || saved.type}” jest podłączone jako wejście. Wybierz plik bezpośrednio w tym nodzie przed zapisem szablonu.`);
+                throw new Error(`The image field in node "${node.title || saved.type}" is connected as an input. Pick the file directly in that node before saving the template.`);
             }
             if (typeof value !== "string" || !value.trim()) return;
             if (!IMAGE_FILE.test(value)) {
-                if (isLoader && widget.name !== "path") throw new Error(`Nieobsługiwany obraz w nodzie „${node.title || saved.type}”: ${value}`);
+                if (isLoader && widget.name !== "path") throw new Error(`Unsupported image in node "${node.title || saved.type}": ${value}`);
                 return;
             }
-            if (!Array.isArray(values)) throw new Error(`Nietypowy zapis pól w nodzie „${node.title || saved.type}”. Użyj Load Image lub loadera Szandor.`);
+            if (!Array.isArray(values)) throw new Error(`Unusual widget values in node "${node.title || saved.type}". Use Load Image or a Szandor loader.`);
             images.push({
                 node_id: saved.id, widget_index: index,
                 ...(saved.type === "SzandorDirectoryImageLoader" ? { directory_index: directoryIndex } : {}),
@@ -53,10 +53,10 @@ export function captureTemplate(app, editor, prompt) {
             captured++;
         });
         if (!captured && !isLoader && /load/i.test(saved.type) && hasImageOutput && !node.outputs?.some(o => ["AUDIO", "VIDEO"].includes(o.type))) {
-            throw new Error(`Nie można skopiować zdjęć z noda „${node.title || saved.type}”. Przed zapisem użyj Load Image, Multi Image Loader lub Load Image From Directory (Szandor).`);
+            throw new Error(`Cannot copy images from node "${node.title || saved.type}". Before saving, use Load Image, Multi Image Loader or Load Image From Directory (Szandor).`);
         }
         if (!captured && !isLoader && /load/i.test(saved.type) && node.outputs?.some(o => ["AUDIO", "VIDEO"].includes(o.type))) {
-            warnings.push(`„${node.title || saved.type}” #${saved.id}: źródło mediów nie jest kopiowane; pozostaje odwołanie zapisane w workflow.`);
+            warnings.push(`"${node.title || saved.type}" #${saved.id}: the media source is not copied; the reference saved in the workflow remains.`);
         }
     }
 

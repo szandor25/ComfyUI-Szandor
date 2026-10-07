@@ -42,7 +42,8 @@ class LoraTesterSelector:
     RETURN_TYPES = ("MODEL", "CLIP", "STRING", "INT")
     RETURN_NAMES = ("MODEL", "CLIP", "label", "total_combos")
     FUNCTION = "select_lora"
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/LoRA"
+    DESCRIPTION = "Steps through LoRA × strength combinations by index for XYZ-style LoRA comparisons."
 
     def select_lora(self, model, clip, strengths, index, lora_1, lora_2, lora_3, lora_4, lora_5, extra_loras=""):
         # 1. Zbieramy LoRy ze slotów (pomijamy "None")
@@ -87,7 +88,7 @@ class LoraTesterSelector:
             model, clip = comfy.sd.load_lora_for_models(model, clip, lora_data, selected_strength, selected_strength)
             print(f"LoRA Tester: [{current_idx+1}/{total}] Testing: {selected_lora} @ {selected_strength}")
         else:
-            print(f"!!! BŁĄD: Nie znaleziono pliku {selected_lora}")
+            print(f"!!! ERROR: File not found: {selected_lora}")
 
         label = f"{selected_lora}\nStr: {selected_strength}"
         return (model, clip, label, total)
@@ -111,7 +112,8 @@ class LoraGridSaver:
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "save"
     OUTPUT_NODE = True
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/LoRA"
+    DESCRIPTION = "Collects the LoRA Tester Selector results into a labeled grid image and saves it."
 
     def save(self, image, label, index, total, columns, filename_prefix, prompt=None, extra_pnginfo=None):
         global GRID_ACCUMULATOR
@@ -190,6 +192,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "LoraTesterSelector": "LoRA Tester Selector (XYZ)",
-    "LoraGridSaver": "LoRA Grid Saver (XYZ)"
+    "LoraTesterSelector": "LoRA Tester Selector XYZ (Szandor)",
+    "LoraGridSaver": "LoRA Grid Saver XYZ (Szandor)"
 }

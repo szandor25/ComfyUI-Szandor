@@ -87,7 +87,7 @@ function showHistoryDropdown(node, widget, onChange, clientX, clientY) {
 
     if (!history.length) {
         const empty = document.createElement("div");
-        empty.textContent = "Brak historii katalogów";
+        empty.textContent = "No folder history";
         empty.style.cssText = "padding:10px 14px;color:#888;font-size:12px;text-align:center;font-family:sans-serif";
         panel.appendChild(empty);
     } else {
@@ -208,7 +208,7 @@ function makeDirectoryWidget(node, initialValue, onChange) {
             ctx.fillStyle = "#888";
             ctx.font = "10px sans-serif";
             ctx.textAlign = "left";
-            ctx.fillText("katalog:", PAD + 8, top + height / 2);
+            ctx.fillText("folder:", PAD + 8, top + height / 2);
 
             // przycisk historii (lokalne współrzędne, bez "top" — patrz mouse())
             const histBtnX = width - PAD - 4 - HIST_BTN_W;
@@ -226,7 +226,7 @@ function makeDirectoryWidget(node, initialValue, onChange) {
 
             ctx.fillStyle = this.value ? "#ddd" : "#666";
             ctx.font = "11px monospace";
-            const label = this.value || "(kliknij, aby wskazać katalog)";
+            const label = this.value || "(click to choose a folder)";
             const maxTextWidth = width - PAD * 2 - 66 - HIST_BTN_W;
             let shown = label;
             while (shown.length > 1 && ctx.measureText(shown).width > maxTextWidth) {
@@ -257,7 +257,7 @@ function makeDirectoryWidget(node, initialValue, onChange) {
                 return true;
             }
 
-            app.canvas.prompt("Katalog z obrazami", this.value || "", value => this.commit(value), event);
+            app.canvas.prompt("Folder with images", this.value || "", value => this.commit(value), event);
             return true;
         },
 
@@ -387,7 +387,7 @@ function makePreviewWidget(node) {
 
             ctx.fillStyle = "#aaa";
             ctx.font = "11px sans-serif";
-            const countText = hasImages ? `${this.index + 1} / ${this.images.length}` : "brak obrazów";
+            const countText = hasImages ? `${this.index + 1} / ${this.images.length}` : "no images";
             ctx.fillText(countText, width / 2, rowY + rowH / 2 + 1);
 
             // ── thumbnail ──
@@ -408,8 +408,8 @@ function makePreviewWidget(node) {
             } else {
                 ctx.fillStyle = "#555";
                 ctx.font = "11px sans-serif";
-                let msg = "Wskaż katalog z obrazami";
-                if (this.loading) msg = "Ładowanie...";
+                let msg = "Choose a folder with images";
+                if (this.loading) msg = "Loading...";
                 else if (hasImages) msg = "";
                 ctx.fillText(msg, width / 2, thumbTop + thumbH / 2);
             }

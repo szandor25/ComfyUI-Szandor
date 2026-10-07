@@ -37,7 +37,7 @@ async function copyTrigger(text) {
         let copied = false;
         try { copied = document.execCommand("copy"); } catch { /* Manual copy below. */ }
         input.remove();
-        if (!copied) window.prompt("Skopiuj trigger (Ctrl+C):", text);
+        if (!copied) window.prompt("Copy the trigger (Ctrl+C):", text);
         return copied;
     }
 }
@@ -50,28 +50,28 @@ function editTrigger(row, onSave) {
     panel.style.cssText = "width:min(600px,88vw);max-height:85vh;overflow:auto;padding:20px;background:#242424;color:#eee;border:1px solid #777;border-radius:10px;display:flex;flex-direction:column;gap:12px";
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-modal", "true");
-    panel.setAttribute("aria-label", "Edytuj trigger LoRA");
+    panel.setAttribute("aria-label", "Edit LoRA trigger");
     const title = document.createElement("strong");
     title.textContent = row.name;
     title.style.overflowWrap = "anywhere";
     const input = document.createElement("textarea");
     input.value = row.trigger ?? "";
-    input.placeholder = "Wpisz trigger lub frazy wymagane przez autora LoRA";
+    input.placeholder = "Enter the trigger or phrases required by the LoRA author";
     input.setAttribute("aria-label", "Trigger");
     input.rows = 4;
     input.style.cssText = "padding:10px;background:#171717;color:#eee;resize:vertical";
     const status = document.createElement("div");
-    status.textContent = "Tekst zostanie zapisany w tym workflow. Checkbox „Do promptu” dołącza go do wyjścia tekstowego.";
+    status.textContent = "The text is saved in this workflow. The \"To prompt\" checkbox appends it to the text output.";
     const suggestions = document.createElement("div");
     suggestions.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;max-height:220px;overflow:auto;flex-shrink:0";
     const suggestionStatus = document.createElement("div");
-    suggestionStatus.textContent = "Odczytywanie podpowiedzi z treningu…";
+    suggestionStatus.textContent = "Reading training suggestions…";
     const showSuggestions = data => {
         suggestions.replaceChildren();
         const candidates = data.suggestions ?? [];
         suggestionStatus.textContent = candidates.length
-            ? "Słowa z treningu — kliknij, aby dodać wybrane do pola powyżej. Nie każde słowo jest triggerem."
-            : "W pliku nie znaleziono podpowiedzi z treningu.";
+            ? "Training words — click to add one to the field above. Not every word is a trigger."
+            : "No training suggestions found in the file.";
         for (const candidate of candidates) {
             const button = document.createElement("button");
             button.type = "button";
@@ -79,8 +79,8 @@ function editTrigger(row, onSave) {
                 ? `${candidate.text} · class token`
                 : `${candidate.text} · ${candidate.count}`;
             button.title = candidate.source === "class_tokens"
-                ? "Fraza zapisana w konfiguracji zbioru treningowego"
-                : "Słowo z opisów treningowych; liczba oznacza zapisaną częstotliwość";
+                ? "Phrase saved in the training dataset configuration"
+                : "Word from the training captions; the number is its recorded frequency";
             button.style.cssText = "padding:6px 9px;cursor:pointer;color:#eee;background:#39334b;border:1px solid #75689b;border-radius:5px;max-width:100%;overflow-wrap:anywhere";
             button.onclick = () => {
                 const current = input.value.trim();
@@ -103,21 +103,21 @@ function editTrigger(row, onSave) {
             // Preserve edits made while the file was being read.
             if (replaceText && input.value === originalText) {
                 input.value = data.trigger || "";
-                status.textContent = data.source ? `Źródło: ${data.source}` : "Brak zapisanego triggera. Wybierz podpowiedź lub wpisz tekst ręcznie.";
+                status.textContent = data.source ? `Source: ${data.source}` : "No saved trigger. Pick a suggestion or type the text yourself.";
             }
         } catch {
             if (version !== readVersion) return;
-            suggestionStatus.textContent = "Nie udało się odczytać metadanych. Możesz wpisać trigger ręcznie.";
+            suggestionStatus.textContent = "Could not read the metadata. You can type the trigger yourself.";
         }
     };
     const buttons = document.createElement("div");
     buttons.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
     const close = () => backdrop.remove();
     for (const [label, action] of [
-        ["Odczytaj z pliku", () => readMetadata(true)],
-        ["Kopiuj", () => copyTrigger(input.value)],
-        ["Zapisz", () => { onSave(input.value.trim()); close(); }],
-        ["Anuluj", close],
+        ["Read from file", () => readMetadata(true)],
+        ["Copy", () => copyTrigger(input.value)],
+        ["Save", () => { onSave(input.value.trim()); close(); }],
+        ["Cancel", close],
     ]) {
         const button = document.createElement("button");
         button.type = "button";
@@ -158,13 +158,13 @@ function loadLoraList(refresh = false) {
             })
             .then(data => {
                 if (!Array.isArray(data.loras) || data.loras.some(name => typeof name !== "string")) {
-                    throw new Error("Nieprawidłowa lista LoRA");
+                    throw new Error("Invalid LoRA list");
                 }
                 return data.loras;
             })
             .catch(error => {
                 if (loraListPromise === request) loraListPromise = null;
-                console.error("[Szandor LoRA Stack] Nie udało się pobrać listy LoRA:", error);
+                console.error("[Szandor LoRA Stack] Could not load the LoRA list:", error);
                 return null;
             });
         loraListPromise = request;
@@ -275,7 +275,7 @@ function chooseLora(currentName = "", excludedNames = [], multiple = false) {
         });
 
         const input = document.createElement("input");
-        input.placeholder = "Szukaj LoRA...";
+        input.placeholder = "Search LoRAs...";
         input.value = currentName;
         Object.assign(input.style, {
             padding: "10px 12px",
@@ -320,7 +320,7 @@ function chooseLora(currentName = "", excludedNames = [], multiple = false) {
 
         const updateConfirmButton = () => {
             const count = selectedNames.size;
-            confirmButton.textContent = `Dodaj zaznaczone (${count})`;
+            confirmButton.textContent = `Add selected (${count})`;
             confirmButton.disabled = count === 0;
             confirmButton.style.opacity = count ? "1" : ".5";
             confirmButton.style.cursor = count ? "pointer" : "default";
@@ -399,7 +399,7 @@ function chooseLora(currentName = "", excludedNames = [], multiple = false) {
             });
             if (!matches.length) {
                 const empty = document.createElement("div");
-                empty.textContent = "Brak pasujacych LoRA";
+                empty.textContent = "No matching LoRAs";
                 empty.style.cssText = "padding:20px;color:#888;text-align:center";
                 list.appendChild(empty);
                 activeIndex = -1;
@@ -573,7 +573,7 @@ function makeStackWidget(node, initialValue) {
                     if (row.name !== name) return;
                     row.triggerError = true;
                     node.setDirtyCanvas(true, true);
-                    console.warn("[Szandor LoRA Stack] Odczyt triggera:", error);
+                    console.warn("[Szandor LoRA Stack] Reading trigger:", error);
                 });
             }
         },
@@ -595,7 +595,7 @@ function makeStackWidget(node, initialValue) {
             ctx.fill();
             ctx.fillStyle = "#aaa";
             ctx.textAlign = "left";
-            ctx.fillText("Włącz wszystkie", 56, y + 16);
+            ctx.fillText("Enable all", 56, y + 16);
 
             ctx.fillStyle = "#292536";
             ctx.strokeStyle = "#75689b";
@@ -607,7 +607,7 @@ function makeStackWidget(node, initialValue) {
             ctx.fillStyle = "#cbbcff";
             ctx.font = "11px sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText("Sprawdź", width - 309, y + 16);
+            ctx.fillText("Check", width - 309, y + 16);
 
             const sortX = width - 274;
             ctx.fillStyle = "#292536";
@@ -629,7 +629,7 @@ function makeStackWidget(node, initialValue) {
             ctx.stroke();
             ctx.fillStyle = "#cbbcff";
             ctx.font = "12px sans-serif";
-            ctx.fillText(`LoRA / kol.: ${layout.limit}`, width - 110, y + 16);
+            ctx.fillText(`LoRA / col.: ${layout.limit}`, width - 110, y + 16);
 
             this.rows.forEach((row, index) => {
                 const width = layout.columnWidth;
@@ -659,9 +659,9 @@ function makeStackWidget(node, initialValue) {
                 ctx.arc(row.enabled ? 36 : 23, middle, 7, 0, Math.PI * 2);
                 ctx.fill();
 
-                const availabilityLabel = missing ? "Brak pliku LoRA"
-                    : row.availability === "error" ? "Nie udało się sprawdzić"
-                    : row.availability === "checking" ? "Sprawdzanie pliku…" : "";
+                const availabilityLabel = missing ? "LoRA file missing"
+                    : row.availability === "error" ? "Could not check"
+                    : row.availability === "checking" ? "Checking the file…" : "";
                 ctx.fillStyle = missing ? "#ffaaaa" : row.enabled ? "#eee" : "#777";
                 ctx.font = "13px sans-serif";
                 ctx.textAlign = "left";
@@ -684,7 +684,7 @@ function makeStackWidget(node, initialValue) {
                     ctx.fillStyle = "#555";
                     ctx.font = "10px sans-serif";
                     ctx.textAlign = "center";
-                    ctx.fillText("brak", thumbX + 19, middle);
+                    ctx.fillText("none", thumbX + 19, middle);
                 }
 
                 ctx.strokeStyle = "#777";
@@ -719,19 +719,19 @@ function makeStackWidget(node, initialValue) {
                 ctx.textAlign = "left";
                 ctx.font = "11px sans-serif";
                 ctx.fillStyle = "#bbb";
-                ctx.fillText("Do promptu", 37, triggerY);
+                ctx.fillText("To prompt", 37, triggerY);
                 ctx.fillStyle = row.trigger ? "#cbbcff" : "#888";
                 const triggerLabel = row.trigger || (row.triggerError
-                    ? "Błąd odczytu — kliknij Edytuj"
-                    : row.trigger == null ? "Odczytywanie…"
-                    : row.suggestionCount ? `Podpowiedzi: ${row.suggestionCount} — kliknij Edytuj`
-                    : "Brak triggera — kliknij Edytuj");
+                    ? "Read error — click Edit"
+                    : row.trigger == null ? "Reading…"
+                    : row.suggestionCount ? `Suggestions: ${row.suggestionCount} — click Edit`
+                    : "No trigger — click Edit");
                 ctx.fillText(shorten(ctx, triggerLabel.replace(/\s+/g, " "), width - 262), 112, triggerY);
                 ctx.textAlign = "center";
                 ctx.fillStyle = row.trigger ? "#cbbcff" : "#666";
-                ctx.fillText(row._copied ? "OK!" : "Kopiuj", width - 104, triggerY);
+                ctx.fillText(row._copied ? "OK!" : "Copy", width - 104, triggerY);
                 ctx.fillStyle = "#cbbcff";
-                ctx.fillText("Edytuj", width - 45, triggerY);
+                ctx.fillText("Edit", width - 45, triggerY);
                 ctx.restore();
             });
 
@@ -748,7 +748,7 @@ function makeStackWidget(node, initialValue) {
             ctx.fillText("+", width / 2 - 48, buttonY + 15);
             ctx.fillStyle = "#ddd";
             ctx.font = "14px sans-serif";
-            ctx.fillText("Dodaj LoRA", width / 2 + 10, buttonY + 15);
+            ctx.fillText("Add LoRA", width / 2 + 10, buttonY + 15);
         },
 
         async mouse(event, pos) {
@@ -788,7 +788,7 @@ function makeStackWidget(node, initialValue) {
             }
 
             if (y < HEADER_HEIGHT && x >= node.size[0] - 208 && x <= node.size[0] - 12) {
-                app.canvas.prompt("Liczba LoRA na kolumnę (dodatnia liczba całkowita)", String(layout.limit), value => {
+                app.canvas.prompt("LoRAs per column (positive whole number)", String(layout.limit), value => {
                     const limit = Number(value);
                     if (!Number.isSafeInteger(limit) || limit < 1) return;
                     node.properties.lora_rows_per_column = limit;

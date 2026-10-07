@@ -1,5 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { analyzePrompt, formatPromptForDisplay, highlightPrompt } from "./h3_prompt_syntax.js";
+import { legacyValue } from "./szandor_legacy.js";
 
 const NODE_TYPE = "SzandorFolderMediaLoader";
 const DEFAULT_SIZE = [380, 640];
@@ -10,6 +12,8 @@ const HISTORY_KEY = "szandor.folderMediaLoader.recentDirs";
 const DEFAULTS_KEY = "szandor.folderMediaLoader.defaults";
 const HISTORY_MAX = 12;
 const REMEMBERED = ["media_filter", "default_time", "fps", "time_output"];
+const PROMPT_VIEW_PROPERTY = "szandorFmlPromptView";
+const NO_PROMPT = "(no prompt)";
 const TIME_OUTPUT_NAMES = ["time", "start_time", "end_time"];
 const BADGES = [["image", "IMG"], ["video", "VIDEO"], ["audio", "AUDIO"], ["txt", "TXT"], ["json", "JSON"]];
 const DROP_EXTENSIONS = /\.(png|jpe?g|webp|bmp|gif|tiff?|mp4|webm|mov|mkv|avi|m4v|gifv|wav|mp3|flac|ogg|m4a|aac|opus|txt|json)$/i;
@@ -88,7 +92,7 @@ function acceptsType(inputType, type) {
 // Zawęża wyjścia time / start_time / end_time do FLOAT albo STRING wg przełącznika time_output.
 // Połączenia do wejść, które nie przyjmą nowego typu, są odłączane (inaczej workflow by się wywrócił).
 function applyTimeOutputType(node, mode) {
-    const type = !mode || mode === "liczba" ? "FLOAT" : "STRING";
+    const type = !mode || legacyValue(NODE_TYPE, "time_output", mode) === "number" ? "FLOAT" : "STRING";
     const graph = node.graph;
     let changed = false;
     for (const name of TIME_OUTPUT_NAMES) {
@@ -119,27 +123,27 @@ function createPanel(node, initialDirectory) {
     const dirRow = el("div", "fml-row");
     const dirInput = el("input", "fml-dir");
     dirInput.type = "text";
-    dirInput.placeholder = "Ścieżka katalogu na komputerze z ComfyUI…";
+    dirInput.placeholder = "Folder path on the ComfyUI machine…";
     dirInput.spellcheck = false;
     dirInput.value = initialDirectory || "";
     const history = el("select", "fml-history");
-    history.title = "Ostatnio używane katalogi";
+    history.title = "Recent folders";
     const refresh = el("button", "", "⟳");
     refresh.type = "button";
-    refresh.title = "Odśwież listę plików";
+    refresh.title = "Refresh the file list";
     dirRow.append(dirInput, history, refresh);
 
     const navRow = el("div", "fml-row");
     const prev = el("button", "", "◀");
     prev.type = "button";
-    prev.title = "Poprzednia pozycja (ustawia seed)";
+    prev.title = "Previous item (sets the seed)";
     const counter = el("div", "fml-counter", "—");
     const next = el("button", "", "▶");
     next.type = "button";
-    next.title = "Następna pozycja (ustawia seed)";
-    const queueAll = el("button", "fml-queue-all", "⏭ Wszystkie");
+    next.title = "Next item (sets the seed)";
+    const queueAll = el("button", "fml-queue-all", "⏭ Queue all");
     queueAll.type = "button";
-    queueAll.title = "Dodaje do kolejki po jednym zadaniu dla każdej pozycji: seed od 0, tryb increment.";
+    queueAll.title = "Queues one job per item: seed from 0, increment mode.";
     navRow.append(prev, counter, next, queueAll);
 
     const stage = el("div", "fml-stage");
@@ -148,7 +152,7 @@ function createPanel(node, initialDirectory) {
     const img = el("img");
     img.alt = "";
     img.hidden = true;
-    const play = el("button", "fml-play", "▶ wideo");
+    const play = el("button", "fml-play", "▶ video");
     play.type = "button";
     play.hidden = true;
     stage.append(img, placeholder, badges, play);
@@ -164,13 +168,31 @@ function createPanel(node, initialDirectory) {
     const timeEl = el("span", "fml-time");
     meta.append(nameEl, resEl, timeEl);
 
-    const promptEl = el("pre", "fml-prompt fml-empty", "(brak promptu)");
-    promptEl.title = "Prompt z pliku .json (pole prompt) lub .txt — tylko podgląd";
+    // Read-only prompt preview, highlighted like the MiniMax H3 Prompt Editor.
+    const promptBox = el("div", "fml-prompt-box");
+    const promptBar = el("div", "fml-prompt-bar");
+    const promptSource = el("span", "fml-prompt-source", "PROMPT");
+    const promptStats = el("span", "fml-prompt-stats");
+    const promptIssues = el("span", "fml-prompt-issues");
+    promptIssues.hidden = true;
+    const formatToggle = el("button", "fml-prompt-button", "Formatted");
+    formatToggle.type = "button";
+    formatToggle.title = "Show each section and [Shot N] on its own line (display only; the output prompt is unchanged).";
+    const copyButton = el("button", "fml-prompt-button", "Copy");
+    copyButton.type = "button";
+    copyButton.title = "Copy the original prompt text";
+    const expandButton = el("button", "fml-prompt-button", "⤢");
+    expandButton.type = "button";
+    expandButton.title = "Enlarge or shrink the prompt preview";
+    promptBar.append(promptSource, promptStats, promptIssues, formatToggle, copyButton, expandButton);
+    const promptEl = el("pre", "fml-prompt fml-empty", NO_PROMPT);
+    promptEl.title = "Prompt from the .json (prompt field) or .txt file — preview only";
+    promptBox.append(promptBar, promptEl);
     const status = el("div", "fml-status");
 
-    root.append(dirRow, navRow, stage, audio, meta, promptEl, status);
+    root.append(dirRow, navRow, stage, audio, meta, promptBox, status);
 
-    for (const control of [dirInput, history, refresh, prev, next, queueAll, play, audio, promptEl]) {
+    for (const control of [dirInput, history, refresh, prev, next, queueAll, play, audio, promptEl, formatToggle, copyButton, expandButton]) {
         control.addEventListener("pointerdown", e => e.stopPropagation());
         control.addEventListener("keydown", e => e.stopPropagation());
     }
@@ -199,7 +221,7 @@ function createPanel(node, initialDirectory) {
     let widget = null;
     const widgetByName = name => node.widgets?.find(w => w.name === name);
     const seedWidget = () => widgetByName("seed");
-    const filterValue = () => widgetByName("media_filter")?.value ?? "wszystko";
+    const filterValue = () => legacyValue(NODE_TYPE, "media_filter", widgetByName("media_filter")?.value ?? "all");
     const numberValue = (name, fallback) => {
         const value = Number(widgetByName(name)?.value);
         return Number.isFinite(value) ? value : fallback;
@@ -259,7 +281,7 @@ function createPanel(node, initialDirectory) {
             tick();
             return;
         }
-        status.textContent = "Wczytywanie listy…";
+        status.textContent = "Loading the list…";
         try {
             const res = await api.fetchApi(`/szandor/folder-media/list?${query({ directory, filter: state.listFilter })}`);
             const data = res.ok ? await res.json() : { items: [], exists: false };
@@ -325,13 +347,67 @@ function createPanel(node, initialDirectory) {
         const range = info.range_in_json && Number.isFinite(info.start_time) && Number.isFinite(info.end_time)
             ? ` · ${formatTime(info.start_time)} → ${formatTime(info.end_time)}`
             : "";
-        timeEl.textContent = `⏱ ${formatTime(info.time)} (${info.time_source}) · ${frames} kl.${range}`;
+        timeEl.textContent = `⏱ ${formatTime(info.time)} (${info.time_source}) · ${frames} fr.${range}`;
         timeEl.title = `start_time: ${formatTime(info.start_time)}, end_time: ${formatTime(info.end_time)}`
-            + (info.range_in_json ? "" : " (brak w JSON — wartości domyślne)");
-        const prompt = info.prompt ?? "";
-        promptEl.textContent = prompt || "(brak promptu)";
-        promptEl.classList.toggle("fml-empty", !prompt);
+            + (info.range_in_json ? "" : " (not in JSON — default values)");
+        renderPrompt(info.prompt ?? "", info.prompt_source ?? "");
     }
+
+    const promptView = () => ({ formatted: true, expanded: false, ...(node.properties?.[PROMPT_VIEW_PROPERTY] ?? {}) });
+    function setPromptView(change) {
+        node.properties ??= {};
+        node.properties[PROMPT_VIEW_PROPERTY] = { ...promptView(), ...change };
+        node.graph?.change?.();
+        renderPrompt(state.prompt?.text ?? "", state.prompt?.source ?? "");
+    }
+
+    function renderPrompt(text, source = "") {
+        state.prompt = { text, source };
+        const view = promptView();
+        formatToggle.setAttribute("aria-pressed", String(view.formatted));
+        expandButton.setAttribute("aria-pressed", String(view.expanded));
+        root.classList.toggle("fml-prompt-expanded", view.expanded);
+        copyButton.disabled = !text;
+        promptSource.textContent = source.startsWith("json") ? `PROMPT · JSON${source === "json:prompt" ? "" : ` (${source.slice(5)})`}`
+            : source === "txt" ? "PROMPT · TXT" : "PROMPT";
+        promptEl.classList.toggle("fml-empty", !text);
+        if (!text) {
+            promptEl.textContent = text === null ? "…" : NO_PROMPT;
+            promptStats.textContent = "";
+            promptIssues.hidden = true;
+            return;
+        }
+        const shown = view.formatted ? formatPromptForDisplay(text) : text;
+        const analysis = analyzePrompt(shown);
+        promptEl.innerHTML = highlightPrompt(shown, analysis).replace(/\n$/, "");
+        const tokens = kind => analysis.tokens.filter(t => t.kind === kind).map(t => shown.slice(t.start, t.end));
+        const shots = new Set(tokens("shot").filter(t => /^\[Shot \d+\]$/.test(t))).size;
+        const speakers = new Set(tokens("speaker").flatMap(t => t.slice(1, -1).split(",").map(s => s.trim()))).size;
+        promptStats.textContent = [
+            shots && `${shots} shot${shots === 1 ? "" : "s"}`,
+            speakers && `${speakers} speaker${speakers === 1 ? "" : "s"}`,
+            `${text.length} chars`,
+        ].filter(Boolean).join(" · ");
+        const issues = analysis.issues.length;
+        promptIssues.hidden = !issues;
+        promptIssues.textContent = `⚠ ${issues}`;
+        promptIssues.title = analysis.issues.map(i => i.message).join("\n");
+    }
+
+    formatToggle.addEventListener("click", () => setPromptView({ formatted: !promptView().formatted }));
+    expandButton.addEventListener("click", () => setPromptView({ expanded: !promptView().expanded }));
+    copyButton.addEventListener("click", async () => {
+        const text = state.prompt?.text;
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            notify("Prompt copied to the clipboard.");
+        } catch {
+            // Clipboard API needs HTTPS or localhost; select the text for Ctrl+C instead.
+            getSelection()?.selectAllChildren(promptEl);
+            notify("The browser blocked the clipboard — the prompt is selected, press Ctrl+C.", true);
+        }
+    });
 
     async function showItem(item) {
         const request = ++state.itemRequest;
@@ -342,11 +418,11 @@ function createPanel(node, initialDirectory) {
         for (const [kind, label] of BADGES) {
             if (item[kind]) badges.append(el("span", `fml-badge b-${kind}`, label));
         }
-        promptEl.textContent = "…";
+        renderPrompt(null);
 
         const hasVisual = item.image || item.video;
-        if (hasVisual) showPlaceholder("", "Ładowanie podglądu…");
-        else showPlaceholder(item.audio ? "🔊" : "📝", item.audio ? "Plik audio" : "Tylko prompt");
+        if (hasVisual) showPlaceholder("", "Loading preview…");
+        else showPlaceholder(item.audio ? "🔊" : "📝", item.audio ? "Audio file" : "Prompt only");
         if (item.audio) {
             audio.src = fileUrl(item.audio);
             audio.hidden = false;
@@ -375,13 +451,13 @@ function createPanel(node, initialDirectory) {
                 play.hidden = !item.video;
             } catch (err) {
                 if (request !== state.itemRequest) return;
-                showPlaceholder("⚠", `Brak podglądu: ${String(err.message || err).slice(0, 160)}`);
+                showPlaceholder("⚠", `No preview: ${String(err.message || err).slice(0, 160)}`);
             }
         }
 
         const info = await infoPromise;
         if (state.disposed || request !== state.itemRequest) return;
-        state.info = info ?? { prompt: "", time: numberValue("default_time", 5), time_source: "domyślny" };
+        state.info = info ?? { prompt: "", time: numberValue("default_time", 5), time_source: "default" };
         renderInfo();
         renderStatus();
     }
@@ -396,9 +472,9 @@ function createPanel(node, initialDirectory) {
             status.classList.toggle("fml-warn", !!state.notice.warn);
         } else if (state.lastLoaded) {
             const l = state.lastLoaded;
-            status.textContent = `Ostatnio wczytany: ${l.name} (${l.index + 1}/${l.count}) · ${formatTime(l.time)}`;
+            status.textContent = `Last loaded: ${l.name} (${l.index + 1}/${l.count}) · ${formatTime(l.time)}`;
         } else {
-            status.textContent = "Seed wybiera pozycję: indeks = seed mod liczba pozycji.";
+            status.textContent = "The seed selects the item: index = seed mod item count.";
         }
         status.title = status.textContent;
     }
@@ -426,7 +502,7 @@ function createPanel(node, initialDirectory) {
         const key = `${state.signature}|${index}`;
         prev.disabled = next.disabled = count < 2;
         queueAll.disabled = !count || state.queueing;
-        queueAll.textContent = count ? `⏭ Wszystkie (${count})` : "⏭ Wszystkie";
+        queueAll.textContent = count ? `⏭ Queue all (${count})` : "⏭ Queue all";
 
         if (key !== state.key) {
             state.key = key;
@@ -435,12 +511,11 @@ function createPanel(node, initialDirectory) {
                 clearMedia();
                 state.info = null;
                 nameEl.textContent = "-";
-                promptEl.textContent = "(brak promptu)";
-                promptEl.classList.add("fml-empty");
-                counter.textContent = state.directory ? "brak plików" : "—";
+                renderPrompt("");
+                counter.textContent = state.directory ? "no files" : "—";
                 showPlaceholder("📁", !state.directory
-                    ? "Wpisz ścieżkę katalogu z obrazami, wideo, audio i promptami (.txt / .json) albo przeciągnij tu pliki"
-                    : state.exists ? "Brak pasujących plików w katalogu" : "Katalog nie istnieje");
+                    ? "Enter a folder with images, videos, audio and prompts (.txt / .json), or drop files here"
+                    : state.exists ? "No matching files in the folder" : "The folder does not exist");
                 renderStatus();
             } else {
                 showItem(state.items[index]);
@@ -466,7 +541,7 @@ function createPanel(node, initialDirectory) {
         settingsKey = key;
         if (filterChanged) reloadList();
         else if (timeChanged && state.items[state.index]) {
-            if (state.info?.time_source === "domyślny") state.key = "";
+            if (state.info?.time_source === "default") state.key = "";
             else renderInfo();
         }
         if (node._szandorFmlReady) saveDefaults();
@@ -503,7 +578,7 @@ function createPanel(node, initialDirectory) {
         const count = state.items.length;
         const seed = seedWidget();
         if (!count || !seed || state.queueing) return;
-        if (!confirm(`Dodać do kolejki ${count} zadań — po jednym dla każdej pozycji z katalogu?`)) return;
+        if (!confirm(`Queue ${count} jobs — one for each item in the folder?`)) return;
         const control = seed.linkedWidgets?.[0] ?? widgetByName("control_after_generate");
         // increment po każdym zadaniu przechodzi przez pozycje 0, 1, …, count-1.
         if (control) control.value = "increment";
@@ -513,7 +588,7 @@ function createPanel(node, initialDirectory) {
         try {
             await app.queuePrompt(0, count);
         } catch (err) {
-            status.textContent = `⚠ Nie udało się dodać do kolejki: ${err?.message ?? err}`;
+            status.textContent = `⚠ Could not queue the jobs: ${err?.message ?? err}`;
             status.classList.add("fml-warn");
         } finally {
             state.queueing = false;
@@ -532,11 +607,11 @@ function createPanel(node, initialDirectory) {
     async function importFiles(files) {
         const accepted = files.filter(f => DROP_EXTENSIONS.test(f.name));
         if (!accepted.length) {
-            notify("⚠ Przeciągnij obraz, wideo, audio albo plik .json / .txt.", true);
+            notify("⚠ Drop an image, video, audio, or a .json / .txt file.", true);
             return;
         }
         const request = ++state.dropRequest;
-        notify(`Wczytywanie ${accepted.length === 1 ? accepted[0].name : `${accepted.length} plików`}…`);
+        notify(`Loading ${accepted.length === 1 ? accepted[0].name : `${accepted.length} files`}…`);
         const body = new FormData();
         body.append("directory", state.directory);
         for (const file of accepted) {
@@ -553,23 +628,23 @@ function createPanel(node, initialDirectory) {
             const name = data.names?.[0];
             let index = state.items.findIndex(item => item.name === name);
             const filter = widgetByName("media_filter");
-            if (index < 0 && filter && filter.value !== "wszystko") {
-                filter.value = "wszystko";
+            if (index < 0 && filter && filter.value !== "all") {
+                filter.value = "all";
                 filter.callback?.(filter.value);
                 await reloadList();
                 index = state.items.findIndex(item => item.name === name);
             }
             const parts = [];
-            if (data.saved?.length) parts.push(`Dodano: ${data.saved.join(", ")}`);
-            else parts.push(`Wybrano: ${name}`);
+            if (data.saved?.length) parts.push(`Added: ${data.saved.join(", ")}`);
+            else parts.push(`Selected: ${name}`);
             const renamed = Object.entries(data.renamed ?? {});
-            if (renamed.length) parts.push(`nazwa zajęta → ${renamed.map(([a, b]) => `${a} jako ${b}`).join(", ")}`);
-            if (data.skipped?.length) parts.push(`pominięto: ${data.skipped.join(", ")}`);
-            if (data.names?.length > 1) parts.push(`${data.names.length} pozycje`);
+            if (renamed.length) parts.push(`name taken → ${renamed.map(([a, b]) => `${a} as ${b}`).join(", ")}`);
+            if (data.skipped?.length) parts.push(`skipped: ${data.skipped.join(", ")}`);
+            if (data.names?.length > 1) parts.push(`${data.names.length} items`);
             notify(parts.join(" · "), !!(renamed.length || data.skipped?.length));
             if (index >= 0) setSeed(index);
         } catch (err) {
-            if (request === state.dropRequest) notify(`⚠ Nie udało się wczytać plików: ${err?.message ?? err}`, true);
+            if (request === state.dropRequest) notify(`⚠ Could not load the files: ${err?.message ?? err}`, true);
         }
     }
 
@@ -666,7 +741,7 @@ app.registerExtension({
                 if (!node._szandorFmlConfigured) {
                     for (const name of REMEMBERED) {
                         const w = node.widgets?.find(x => x.name === name);
-                        if (w && defaults[name] !== undefined) w.value = defaults[name];
+                        if (w && defaults[name] !== undefined) w.value = legacyValue(NODE_TYPE, name, defaults[name]);
                     }
                     const seed = node.widgets?.find(w => w.name === "seed");
                     const control = seed?.linkedWidgets?.[0]

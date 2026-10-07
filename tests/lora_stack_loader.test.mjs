@@ -119,7 +119,7 @@ test("training suggestions can be selected and saved without auto-activating wor
     suggestions.children[0].onclick();
     assert.equal(input.value, "private_person");
     assert.equal(row.trigger, "");
-    panel.children[5].children.find(button => button.textContent === "Zapisz").onclick();
+    panel.children[5].children.find(button => button.textContent === "Save").onclick();
     assert.equal(saved, "private_person");
     assert.equal(row.use_trigger, false);
 });
@@ -239,10 +239,10 @@ test("missing files are detected by full model name, independently of thumbnails
         fillText: text => labels.push(text),
     }, { get: (target, key) => target[key] ?? (() => {}) });
     widget.draw(ctx, node, 520, 0);
-    assert.equal(labels.filter(text => text === "Brak pliku LoRA").length, 1);
+    assert.equal(labels.filter(text => text === "LoRA file missing").length, 1);
 });
 
-test("Sprawdź reloads the model list and clears the warning after a file is installed", async () => {
+test("Check reloads the model list and clears the warning after a file is installed", async () => {
     let names = [];
     let requests = 0;
     const { context, node } = setup(undefined, async () => {

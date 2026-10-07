@@ -177,7 +177,7 @@ async def list_loras(_request):
 async def lora_thumbnail(request):
     thumbnail = _thumbnail_for_lora(request.query.get("name", ""))
     if thumbnail is None:
-        raise web.HTTPNotFound(text="Brak miniatury dla tej LoRA")
+        raise web.HTTPNotFound(text="No thumbnail for this LoRA")
     return web.FileResponse(
         path=os.fspath(thumbnail),
         headers={"Cache-Control": "no-cache"},
@@ -190,7 +190,7 @@ async def lora_triggers(request):
 
     name = request.query.get("name", "")
     if name not in _available_loras():
-        raise web.HTTPNotFound(text="Nie znaleziono LoRA")
+        raise web.HTTPNotFound(text="LoRA not found")
     return web.json_response(await asyncio.to_thread(_triggers_for_lora, name))
 
 
@@ -217,17 +217,18 @@ class SzandorLoraStackLoader:
     RETURN_TYPES = ("MODEL", "CLIP", "STRING", "STRING")
     RETURN_NAMES = ("model", "clip", "trigger_words", "prompt_with_triggers")
     FUNCTION = "apply_loras"
-    CATEGORY = "Moje Nody/LoRA"
+    CATEGORY = "Szandor/LoRA"
+    DESCRIPTION = "Applies an ordered list of LoRAs with thumbnails, strengths and optional trigger words to MODEL and CLIP."
 
     @staticmethod
     def _parse_stack(value):
         try:
             rows = json.loads(value or "[]")
         except (TypeError, json.JSONDecodeError) as error:
-            raise ValueError("Nieprawidłowe dane listy LoRA w workflow.") from error
+            raise ValueError("Invalid LoRA list data in the workflow.") from error
 
         if not isinstance(rows, list):
-            raise ValueError("Lista LoRA musi być tablicą JSON.")
+            raise ValueError("The LoRA list must be a JSON array.")
         return rows
 
     def _load_lora(self, path):
@@ -245,12 +246,12 @@ class SzandorLoraStackLoader:
 
             name = row.get("name", "")
             if name not in available:
-                raise FileNotFoundError(f"Nie znaleziono LoRA: {name}")
+                raise FileNotFoundError(f"LoRA not found: {name}")
 
             try:
                 strength = float(row.get("strength", 1.0))
             except (TypeError, ValueError) as error:
-                raise ValueError(f"Nieprawidłowa siła LoRA: {name}") from error
+                raise ValueError(f"Invalid LoRA strength: {name}") from error
 
             strength = max(0.0, min(2.0, strength))
             if strength == 0.0:
@@ -258,7 +259,7 @@ class SzandorLoraStackLoader:
 
             path = folder_paths.get_full_path("loras", name)
             if not path:
-                raise FileNotFoundError(f"Nie znaleziono LoRA: {name}")
+                raise FileNotFoundError(f"LoRA not found: {name}")
 
             model, clip = comfy.sd.load_lora_for_models(
                 model,
@@ -282,5 +283,5 @@ class SzandorLoraStackLoader:
 
 NODE_CLASS_MAPPINGS = {"SzandorLoraStackLoader": SzandorLoraStackLoader}
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SzandorLoraStackLoader": "LoRA Stack z miniaturami (Szandor)"
+    "SzandorLoraStackLoader": "LoRA Stack with Thumbnails (Szandor)"
 }

@@ -40,6 +40,8 @@
 .szandor-h3-editor .h3-input::selection { background: #43639799; }
 .szandor-h3-editor .h3-dialogue { color: #73e0ba; }
 .szandor-h3-editor .h3-shot { color: #ffc879; }
+.szandor-h3-editor .h3-time { color: #ffc879; }
+.szandor-h3-editor .h3-spoken { color: #b9f3dc; }
 .szandor-h3-editor .h3-bracket { color: #e2c684; }
 .szandor-h3-editor .h3-reference { color: #8bc9ff; }
 .szandor-h3-editor .h3-speaker { color: #e0acff; }

@@ -43,11 +43,11 @@ test("snapshot preserves exact prompt, all image slots, directory mapping and co
 test("linked image selectors and media inside subgraphs are reported before saving", () => {
     const { app, nodes, editor } = host();
     nodes[1].inputs = [{ widget: { name: "image" }, link: 10 }];
-    assert.throws(() => captureTemplate(app, editor, "test"), /podłączone/);
+    assert.throws(() => captureTemplate(app, editor, "test"), /connected as an input/);
     nodes[1].inputs = [];
     const serialize = app.graph.serialize;
     app.graph.serialize = () => ({ ...serialize(), definitions: { subgraphs: [{ nodes: [{ type: "LoadImage" }] }] } });
-    assert.throws(() => captureTemplate(app, editor, "test"), /podgraf/);
+    assert.throws(() => captureTemplate(app, editor, "test"), /subgraph/);
 });
 
 test("uncopied audio and video dependencies are visible in template notes", () => {

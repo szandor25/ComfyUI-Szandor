@@ -31,7 +31,7 @@ class BatchImageLoaderWithName:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "directory_path": ("STRING", {"default": "C:\\Sciezka\\Do\\Zdjec"}),
+                "directory_path": ("STRING", {"default": "C:\\Path\\To\\Images"}),
                 "index": ("INT", {"default": 0, "min": 0, "max": 99999, "step": 1}),
             }
         }
@@ -40,11 +40,12 @@ class BatchImageLoaderWithName:
     RETURN_TYPES = ("IMAGE", "MASK", "STRING")
     RETURN_NAMES = ("image", "mask", "filename_text")
     FUNCTION = "load_batch_images"
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/Image"
+    DESCRIPTION = "Loads one image (with mask and file name) from a folder; index wraps around the sorted file list."
 
     def load_batch_images(self, directory_path, index):
         if not os.path.isdir(directory_path):
-            raise FileNotFoundError(f"Katalog nie istnieje: {directory_path}")
+            raise FileNotFoundError(f"Folder does not exist: {directory_path}")
 
         valid_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.webp')
         files = sorted([
@@ -53,7 +54,7 @@ class BatchImageLoaderWithName:
         ])
 
         if not files:
-            raise FileNotFoundError("Brak obrazków w podanym katalogu.")
+            raise FileNotFoundError("No images in the given folder.")
 
         file_to_load = files[index % len(files)]
         image_path = os.path.join(directory_path, file_to_load)
@@ -76,14 +77,15 @@ class SaveTextFile:
             "required": {
                 "filename": ("STRING", {"forceInput": True}),
                 "text_content": ("STRING", {"forceInput": True}),
-                "custom_path": ("STRING", {"default": "", "multiline": False, "placeholder": "Opcjonalnie: C:\\Inny\\Folder (puste = folder output)"}),
+                "custom_path": ("STRING", {"default": "", "multiline": False, "placeholder": "Optional: C:\\Other\\Folder (empty = output folder)"}),
             }
         }
 
     RETURN_TYPES = ()
     FUNCTION = "save_text"
     OUTPUT_NODE = True
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/Text"
+    DESCRIPTION = "Saves text to <filename>.txt in the output folder or a custom path."
 
     def save_text(self, filename, text_content, custom_path):
         if custom_path.strip() != "":
@@ -97,7 +99,7 @@ class SaveTextFile:
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(text_content)
 
-        print(f"Zapisano opis dla: {filename}")
+        print(f"[Szandor] Saved text for: {filename}")
         return {}
 
 class TextDirectoryLoader:
@@ -105,7 +107,7 @@ class TextDirectoryLoader:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "directory_path": ("STRING", {"default": "C:/prompty"}),
+                "directory_path": ("STRING", {"default": "C:/prompts"}),
                 "index": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
             },
         }
@@ -113,16 +115,17 @@ class TextDirectoryLoader:
     RETURN_TYPES = ("STRING", "STRING", "INT")
     RETURN_NAMES = ("text", "filename", "total_files")
     FUNCTION = "load_text"
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/Text"
+    DESCRIPTION = "Loads one .txt file from a folder; index wraps around the sorted file list."
 
     def load_text(self, directory_path, index):
         if not os.path.isdir(directory_path):
-            return ("Folder nie istnieje!", "", 0)
+            return ("Folder does not exist!", "", 0)
 
         files = sorted([f for f in os.listdir(directory_path) if f.endswith('.txt')])
 
         if not files:
-            return ("Brak plików .txt w folderze", "", 0)
+            return ("No .txt files in the folder", "", 0)
 
         actual_index = index % len(files)
         file_path = os.path.join(directory_path, files[actual_index])
@@ -133,7 +136,7 @@ class TextDirectoryLoader:
         return (content, files[actual_index], len(files))
 
 class TextFilePickerLoader:
-    _ui_directory = "C:/prompty"
+    _ui_directory = "C:/prompts"
     _ui_sort_by = "name"
     _ui_sort_order = "asc"
     _ui_refresh_counter = 0
@@ -193,17 +196,18 @@ class TextFilePickerLoader:
     RETURN_TYPES = ("STRING", "STRING", "INT", "STRING")
     RETURN_NAMES = ("text", "filename", "total_files", "available_files")
     FUNCTION = "load_selected_text"
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/Text"
+    DESCRIPTION = "Picks a .txt file from a folder list (by name or modification time), with an index fallback."
 
     def load_selected_text(self, directory_path, sort_by, sort_order, refresh_counter, selected_file, index_fallback):
         files = self._list_txt_files(directory_path, sort_by, sort_order)
         self._refresh_ui_cache(directory_path, sort_by, sort_order, refresh_counter)
 
         if not os.path.isdir(directory_path):
-            return ("Folder nie istnieje!", "", 0, "")
+            return ("Folder does not exist!", "", 0, "")
 
         if not files:
-            return ("Brak plikow .txt w folderze", "", 0, "")
+            return ("No .txt files in the folder", "", 0, "")
 
         if selected_file in files:
             filename = selected_file
@@ -243,7 +247,8 @@ class SzandorAutoCrop:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
     FUNCTION = "auto_crop"
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/Image"
+    DESCRIPTION = "Crops an image to the largest area with the chosen aspect ratio and dimensions divisible by 8–64."
 
     @staticmethod
     def _largest_divisible_size(width, height, ratio, divisible_by):
@@ -277,7 +282,7 @@ class SzandorAutoCrop:
 
     def auto_crop(self, image, crop_method, crop_position, divisible_by):
         if image.ndim != 4:
-            raise ValueError("Szandor Auto Crop oczekuje obrazu IMAGE w formacie B,H,W,C.")
+            raise ValueError("Auto Crop expects an IMAGE in B,H,W,C format.")
 
         _, height, width, _ = image.shape
         ratio = self.ASPECT_RATIOS[crop_method]
@@ -304,9 +309,9 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "BatchImageLoaderWithName": "Batch Image Loader (Folder)",
-    "SaveTextFile": "Save Text File (Custom Path)",
-    "TextDirectoryLoader": "Text Batch Loader (Folder)",
-    "TextFilePickerLoader": "Text File Picker (Folder)",
-    "SzandorAutoCrop": "Szandor Auto Crop"
+    "BatchImageLoaderWithName": "Batch Image Loader from Folder (Szandor)",
+    "SaveTextFile": "Save Text File (Szandor)",
+    "TextDirectoryLoader": "Text Batch Loader from Folder (Szandor)",
+    "TextFilePickerLoader": "Text File Picker (Szandor)",
+    "SzandorAutoCrop": "Auto Crop (Szandor)"
 }

@@ -26,7 +26,7 @@ class Host {
   setSize(size) { this.size = size; if(this.element) { this.element.style.width = size[0]+'px'; this.element.style.height = (size[1]-60)+'px'; } this.onResize?.(size); }
   setDirtyCanvas() {}
 }
-const extension = app.extensions[0];
+const extension = app.extensions.find(e => e.name === 'Szandor.MiniMaxH3Prompt');
 extension.beforeRegisterNodeDef(Host, {name:'SzandorMiniMaxH3Prompt'});
 window.makeNode = () => {
   const node = new Host();
@@ -148,7 +148,7 @@ try {
     await evaluate("navigator.clipboard.readText=async()=>''; document.querySelector('.h3-paste').click()");
     await settle();
     assert.equal(await evaluate("widget.value"), text);
-    assert.match(await evaluate("document.querySelector('.h3-clipboard-status').textContent"), /nie zawiera tekstu/);
+    assert.match(await evaluate("document.querySelector('.h3-clipboard-status').textContent"), /contains no text/);
     await evaluate("navigator.clipboard.readText=async()=>{throw new Error('denied')}; document.querySelector('.h3-paste').click()");
     await settle();
     assert.equal(await evaluate("widget.value"), text);
@@ -226,7 +226,7 @@ try {
     await evaluate("File.prototype.text = async () => { throw new Error('read failed'); }; dropFiles([new File([''], 'failed.txt')])");
     await settle();
     assert.equal(await evaluate("widget.value"), "newest file");
-    assert.match(await evaluate("document.querySelector('.h3-clipboard-status').textContent"), /Nie udało się/);
+    assert.match(await evaluate("document.querySelector('.h3-clipboard-status').textContent"), /Could not read/);
     await evaluate("File.prototype.text = originalFileText");
 
     await evaluate("widget.value = '<d>[Polish] Niedomknięty dialog';");
@@ -320,8 +320,8 @@ try {
     assert.deepEqual(restored.savedSize, size);
     assert.equal(restored.text, await evaluate("widget.value"));
     // Save and load through the visible library; backend copy integrity is tested in Python.
-    await evaluate("widget.value = '  <d>[Polish] Szablon!</d>\\n'; [...node.element.querySelectorAll('button')].find(b=>b.textContent==='Szablony').click()");
-    await evaluate("document.querySelector('[aria-label=\"Nazwa szablonu\"]').value='Moja scena'; document.querySelector('[aria-label=\"Informacyjny czas trwania w sekundach\"]').value='8.5'; document.querySelector('.h3-template-form').requestSubmit()");
+    await evaluate("widget.value = '  <d>[Polish] Szablon!</d>\\n'; [...node.element.querySelectorAll('button')].find(b=>b.textContent==='Templates').click()");
+    await evaluate("document.querySelector('[aria-label=\"Template name\"]').value='Moja scena'; document.querySelector('[aria-label=\"Informational duration in seconds\"]').value='8.5'; document.querySelector('.h3-template-form').requestSubmit()");
     for (let i = 0; i < 100; i++) {
         if (await evaluate("document.querySelector('.h3-template-preview button')?.disabled === false")) break;
         await new Promise(r => setTimeout(r, 50));
@@ -338,7 +338,7 @@ try {
     }
     assert.equal(await evaluate("loadedWorkflow.nodes[1].widgets_values[0]"), "szandor_h3_templates/copy.png");
     assert.equal(await evaluate("loadedWorkflow.nodes[0].widgets_values[0]"), savedTemplate.prompt);
-    await evaluate("[...node.element.querySelectorAll('button')].find(b=>b.textContent==='Szablony').click()");
+    await evaluate("[...node.element.querySelectorAll('button')].find(b=>b.textContent==='Templates').click()");
     for (let i = 0; i < 100; i++) {
         if (await evaluate("!!document.querySelector('.h3-template-list button')")) break;
         await new Promise(r => setTimeout(r, 50));
@@ -351,12 +351,12 @@ try {
     await evaluate("document.querySelector('.h3-template-actions .h3-template-delete').click()");
     assert.equal(await evaluate("document.querySelector('.h3-template-delete-confirm').hidden"), false);
     assert.equal(deleteRequests, 0);
-    await evaluate("[...document.querySelectorAll('.h3-template-delete-confirm button')].find(b=>b.textContent==='Anuluj').click()");
+    await evaluate("[...document.querySelectorAll('.h3-template-delete-confirm button')].find(b=>b.textContent==='Cancel').click()");
     assert.equal(await evaluate("document.querySelector('.h3-template-delete-confirm').hidden"), true);
     assert.equal(deleteRequests, 0);
     await evaluate("document.querySelector('.h3-template-actions .h3-template-delete').click(); document.querySelector('.h3-template-delete-confirm .h3-template-delete').click()");
     for (let i = 0; i < 100; i++) {
-        if (await evaluate("document.querySelector('.h3-template-message').textContent.startsWith('Usunięto') && !document.querySelector('.h3-template-list button')")) break;
+        if (await evaluate("document.querySelector('.h3-template-message').textContent.startsWith('Deleted') && !document.querySelector('.h3-template-list button')")) break;
         await new Promise(r => setTimeout(r, 50));
     }
     assert.equal(deleteRequests, 1);

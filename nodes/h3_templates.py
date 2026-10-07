@@ -21,7 +21,7 @@ async def run(action, *args):
     try:
         return web.json_response(await asyncio.to_thread(action, *args))
     except FileNotFoundError as error:
-        return web.json_response({"error": f"Nie znaleziono pliku: {error.filename or error}"}, status=404)
+        return web.json_response({"error": f"File not found: {error.filename or error}"}, status=404)
     except (ValueError, KeyError, TypeError, OSError) as error:
         return web.json_response({"error": str(error)}, status=400)
 
@@ -36,9 +36,9 @@ async def save_template(request):
     try:
         payload = await request.json()
         if not isinstance(payload, dict):
-            raise ValueError("Nieprawidłowy szablon.")
+            raise ValueError("Invalid template.")
     except ValueError:
-        return web.json_response({"error": "Nieprawidłowy szablon."}, status=400)
+        return web.json_response({"error": "Invalid template."}, status=400)
     return await run(store(request).save, payload)
 
 

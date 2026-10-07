@@ -199,7 +199,7 @@ function makeSlotWidget(node, idx) {
                 ctx.font = "12px sans-serif";
                 ctx.textAlign = "center";
                 ctx.fillText(
-                    `\u2191 Obraz ${idx} \u2013 kliknij lub upu\u015b\u0107`,
+                    `\u2191 Image ${idx} \u2013 click or drop`,
                     width / 2,
                     y + height / 2 + 4
                 );
@@ -317,7 +317,7 @@ function safeRemoveOutput(node, index) {
         return true;
     } catch (error) {
         console.warn(
-            `[MultiImageLoader] Nie udało się bezpiecznie usunąć wyjścia ${index}:`,
+            `[MultiImageLoader] Could not safely remove output ${index}:`,
             error
         );
 
@@ -357,8 +357,12 @@ function syncNode(node, count) {
             }
         }
     } else if (cur < c) {
-        for (let i = cur + 1; i <= c; i++) node.addOutput(`obraz_${i}`, "IMAGE");
+        for (let i = cur + 1; i <= c; i++) node.addOutput(`image_${i}`, "IMAGE");
     }
+    // Workflows saved by the Polish version named the outputs obraz_N; links use indexes.
+    node.outputs?.forEach((output, i) => {
+        if (/^obraz_\d+$/.test(output.name)) output.name = `image_${i + 1}`;
+    });
 
     node.setSize(node.computeSize());
     node.setDirtyCanvas(true, true);
@@ -380,7 +384,7 @@ function scheduleNodeSync(node) {
         try {
             syncNode(node, countW.value);
         } catch (error) {
-            console.error("[MultiImageLoader] Błąd odroczonej synchronizacji:", error);
+            console.error("[MultiImageLoader] Deferred sync error:", error);
         }
     });
 }

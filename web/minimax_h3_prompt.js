@@ -49,7 +49,7 @@ export function createEditor(node, name, inputData) {
     const root = element("div", "szandor-h3-editor");
     const toolbar = element("div", "h3-toolbar");
     const snippets = element("select", "h3-snippets");
-    snippets.setAttribute("aria-label", "Znacznik lub szablon do wstawienia");
+    snippets.setAttribute("aria-label", "Tag or template to insert");
     for (const [groupLabel, items] of SNIPPET_GROUPS) {
         const group = element("optgroup");
         group.label = groupLabel;
@@ -60,23 +60,23 @@ export function createEditor(node, name, inputData) {
         }
         snippets.append(group);
     }
-    const insert = element("button", "h3-button", "Wstaw");
+    const insert = element("button", "h3-button", "Insert");
     insert.type = "button";
-    insert.title = "Wstaw w miejscu kursora; dialog obejmie zaznaczony tekst. Ctrl+Z cofa zmianę.";
-    const suggest = element("button", "h3-button h3-suggest", "Podpowiedzi");
+    insert.title = "Insert at the cursor; dialogue wraps the selected text. Ctrl+Z undoes.";
+    const suggest = element("button", "h3-button h3-suggest", "Suggestions");
     suggest.type = "button";
-    suggest.title = "Podpowiadaj znaczniki podczas pisania (<, [, (, nazwy sekcji, ruchy kamery). Ctrl+Spacja działa zawsze.";
+    suggest.title = "Suggest tags while typing (<, [, (, section names, camera moves). Ctrl+Space always works.";
     const autocompleteEnabled = () => node.properties?.[AUTOCOMPLETE_PROPERTY] !== false;
-    const help = element("button", "h3-button", "Składnia");
+    const help = element("button", "h3-button", "Syntax");
     help.type = "button";
     help.setAttribute("aria-expanded", "false");
-    const templates = element("button", "h3-button", "Szablony");
+    const templates = element("button", "h3-button", "Templates");
     templates.type = "button";
-    templates.title = "Zapisuj i wczytuj workflow z pełnym promptem i kopiami zdjęć";
+    templates.title = "Save and load workflows with the full prompt and copies of the images";
     const paste = element("button", "h3-button h3-paste", "📋");
     paste.type = "button";
-    paste.title = "Wklej prompt ze schowka — zastępuje całą treść. Ctrl+Z cofa zmianę.";
-    paste.setAttribute("aria-label", "Wklej prompt ze schowka");
+    paste.title = "Paste the prompt from the clipboard — replaces all text. Ctrl+Z undoes.";
+    paste.setAttribute("aria-label", "Paste prompt from the clipboard");
     toolbar.append(snippets, insert, suggest, paste, help, templates);
     const clipboardStatus = element("p", "h3-clipboard-status");
     clipboardStatus.hidden = true;
@@ -85,15 +85,15 @@ export function createEditor(node, name, inputData) {
     const guide = element("div", "h3-guide");
     guide.hidden = true;
     for (const [kind, label] of [
-        ["dialogue", "<d>[Polish] Słowa dialogu</d> — opis głosu i (S1) umieść przed <d>. Język możesz zmienić ręcznie."],
-        ["shot", "[Shot 1] · [Shot 2] At 00:03.000, … — czas kolejnego cięcia; dopasuj numer i czas."],
-        ["reference", "<Subject 1> · <Picture 1> · <Video 1> · <Audio 1> — dopasuj numery do referencji w workflow."],
-        ["boundary", "<scenetrans> — dialog przez cięcie (po obu stronach); <cutoff> — urwany przez koniec filmu. Nie wymagają zamknięcia."],
-        ["section", "Opis sceny pisz po angielsku; dialog, śpiew i tekst na ekranie zachowują swój język. Szablony wymagają uzupełnienia."],
-        ["tag", "Szare znaczniki są nierozpoznane przez edytor. Pozostają w tekście. Podpowiedzi nie blokują generowania."],
-        ["speaker", "Podpowiedzi: wpisz <, [ lub (, początek nazwy sekcji w nowej linii, słowo po „camera” / „shot” / (S1) albo relację po „<Subject 1> …:”. Ctrl+Spacja pokazuje też frazy kamery, cięć i ciągłości dla bieżącego słowa. ↑↓ wybór, Enter / Tab wstawia, Esc zamyka."],
+        ["dialogue", "<d>[Polish] Spoken words</d> — put the voice description and (S1) before <d>. Change the language as needed."],
+        ["shot", "[Shot 1] · [Shot 2] At 00:03.000, … — the next cut time; adjust the number and time."],
+        ["reference", "<Subject 1> · <Picture 1> · <Video 1> · <Audio 1> — match the numbers to the references in the workflow."],
+        ["boundary", "<scenetrans> — a line across a cut (on both sides); <cutoff> — cut off by the video end. No closing tag needed."],
+        ["section", "Write the scene description in English; dialogue, singing and on-screen text keep their language. Templates need filling in."],
+        ["tag", "Grey tags are not recognized by the editor. They stay in the text. Hints never block generation."],
+        ["speaker", "Suggestions: type <, [ or (, the start of a section name on a new line, a word after \"camera\" / \"shot\" / (S1), or a relation after \"<Subject 1> …:\". Ctrl+Space also offers camera, cut and continuity phrases for the current word. ↑↓ select, Enter / Tab insert, Esc closes."],
     ]) guide.append(element("p", `h3-${kind}`, label));
-    const source = element("a", "", "Oficjalny poradnik MiniMax H3 ↗");
+    const source = element("a", "", "Official MiniMax H3 prompt guide ↗");
     source.href = "https://github.com/MiniMax-AI/MiniMax-H3/tree/main/skills/h3-prompt-writing/references";
     source.target = "_blank";
     source.rel = "noopener noreferrer";
@@ -108,8 +108,8 @@ export function createEditor(node, name, inputData) {
     input.autocomplete = "off";
     input.setAttribute("autocapitalize", "off");
     input.wrap = "soft";
-    input.placeholder = "Wpisz, wklej prompt lub przeciągnij plik .txt / .json…\n\n(S1) says: <d>[Polish] Cześć!</d>";
-    input.title = "Przeciągnij plik .txt lub .json (pole prompt), aby zastąpić cały prompt.";
+    input.placeholder = "Type or paste a prompt, or drop a .txt / .json file…\n\n(S1) says: <d>[English] Hello!</d>";
+    input.title = "Drop a .txt or .json file (prompt field) to replace the whole prompt.";
     input.value = inputData?.[1]?.default ?? "";
     templates.addEventListener("click", () => openTemplates(node, () => input.value));
     surface.append(mirror, input);
@@ -118,7 +118,7 @@ export function createEditor(node, name, inputData) {
     const status = element("button", "h3-status");
     status.type = "button";
     const grip = element("div", "h3-grip", "◢");
-    grip.title = "Przeciągnij, aby zmienić rozmiar. Rozmiar zapisuje się w workflow.";
+    grip.title = "Drag to resize. The size is saved in the workflow.";
     grip.setAttribute("aria-hidden", "true");
     footer.append(status, grip);
     root.append(toolbar, clipboardStatus, guide, surface, footer);
@@ -138,11 +138,11 @@ export function createEditor(node, name, inputData) {
         analysis = analyzePrompt(input.value);
         mirror.innerHTML = highlightPrompt(input.value, analysis, input.selectionStart);
         const count = analysis.issues.length;
-        status.textContent = count ? `⚠ ${count} uwag — ${analysis.issues[issueIndex % count].message}` : "<d> dialog · [ ] ujęcie / język · < > referencje · Ctrl+Spacja podpowiedzi";
+        status.textContent = count ? `⚠ ${count} ${count === 1 ? "hint" : "hints"} — ${analysis.issues[issueIndex % count].message}` : "<d> dialogue · [ ] shot / language · < > references · Ctrl+Space suggestions";
         suggest.setAttribute("aria-pressed", String(autocompleteEnabled()));
         status.classList.toggle("h3-has-issues", count > 0);
         status.disabled = !count;
-        status.title = count ? "Kliknij, aby zaznaczyć kolejną uwagę. " + analysis.issues.map(i => i.message).join("\n") : "Kolory oznaczają składnię; tekst trafia bez zmian na wyjście prompt.";
+        status.title = count ? "Click to select the next hint. " + analysis.issues.map(i => i.message).join("\n") : "Colors mark the syntax; the text goes to the prompt output unchanged.";
         syncScroll();
     }
     function scheduleRender() {
@@ -218,7 +218,7 @@ export function createEditor(node, name, inputData) {
         // Obraz przeciągnięty razem ze swoim JSON-em jest pomijany — liczy się jeden plik z promptem.
         const promptFiles = files.filter(file => /\.(txt|json)$/i.test(file.name));
         if (promptFiles.length !== 1) {
-            report("Przeciągnij jeden plik .txt lub .json z promptem.");
+            report("Drop a single .txt or .json file with the prompt.");
             return;
         }
         const [file] = promptFiles;
@@ -229,21 +229,21 @@ export function createEditor(node, name, inputData) {
             if (disposed || request !== fileRead) return;
             const text = /\.json$/i.test(file.name) ? promptFromJson(content) : content;
             if (text === null) {
-                report("Plik JSON nie zawiera pola prompt (ani text / positive). Prompt pozostał bez zmian.");
+                report("The JSON file has no prompt field (nor text / positive). The prompt was not changed.");
                 return;
             }
             if (input.value !== previous) {
-                report("Prompt zmienił się podczas odczytu. Przeciągnij plik ponownie, aby go zastąpić.");
+                report("The prompt changed while reading. Drop the file again to replace it.");
                 return;
             }
             if (!text) {
-                report("Plik jest pusty. Prompt pozostał bez zmian.");
+                report("The file is empty. The prompt was not changed.");
                 return;
             }
             replacePrompt(text);
-            report(`Wczytano: ${file.name}`);
+            report(`Loaded: ${file.name}`);
         } catch {
-            if (!disposed && request === fileRead) report("Nie udało się odczytać pliku. Przeciągnij go ponownie.");
+            if (!disposed && request === fileRead) report("Could not read the file. Drop it again.");
         }
     });
 
@@ -257,12 +257,12 @@ export function createEditor(node, name, inputData) {
             const text = await navigator.clipboard.readText();
             if (disposed) return;
             if (input.value !== previous) {
-                clipboardStatus.textContent = "Prompt zmienił się podczas odczytu schowka. Kliknij 📋 ponownie, aby go zastąpić.";
+                clipboardStatus.textContent = "The prompt changed while reading the clipboard. Click 📋 again to replace it.";
                 clipboardStatus.hidden = false;
                 return;
             }
             if (!text) {
-                clipboardStatus.textContent = "Schowek nie zawiera tekstu.";
+                clipboardStatus.textContent = "The clipboard contains no text.";
                 clipboardStatus.hidden = false;
                 return;
             }
@@ -271,7 +271,7 @@ export function createEditor(node, name, inputData) {
             if (disposed) return;
             input.focus({ preventScroll: true });
             input.select();
-            clipboardStatus.textContent = "Przeglądarka nie udostępniła schowka. Naciśnij Ctrl+V (Mac: ⌘V), aby zastąpić zaznaczony prompt.";
+            clipboardStatus.textContent = "The browser blocked the clipboard. Press Ctrl+V (Mac: ⌘V) to replace the selected prompt.";
             clipboardStatus.hidden = false;
         } finally { paste.disabled = false; }
     });

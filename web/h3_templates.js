@@ -10,7 +10,7 @@ async function request(path = "", payload, method = payload === undefined ? "GET
         ...(payload === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `Błąd biblioteki szablonów (HTTP ${response.status}). Po aktualizacji zrestartuj ComfyUI.`);
+    if (!response.ok) throw new Error(data.error || `Template library error (HTTP ${response.status}). Restart ComfyUI after updating.`);
     return data;
 }
 
@@ -24,36 +24,36 @@ function el(tag, text, className = "") {
 export function openTemplates(node, getPrompt) {
     const dialog = el("dialog", "", "h3-template-dialog");
     const heading = el("div", "", "h3-template-heading");
-    const close = el("button", "Zamknij");
+    const close = el("button", "Close");
     close.type = "button";
-    heading.append(el("h2", "Szablony MiniMax H3"), close);
-    dialog.append(heading, el("p", "Szablon zachowuje cały workflow, pełny prompt i kopie zdjęć. Wczytanie zastępuje bieżący workflow; wcześniej zapisz niezapisane zmiany."));
+    heading.append(el("h2", "MiniMax H3 templates"), close);
+    dialog.append(heading, el("p", "A template keeps the whole workflow, the full prompt and copies of the images. Loading one replaces the current workflow; save unsaved changes first."));
     const form = el("form", "", "h3-template-form");
     const name = el("input");
-    name.placeholder = "Nazwa nowego szablonu";
+    name.placeholder = "New template name";
     name.required = true;
     name.maxLength = 160;
-    name.setAttribute("aria-label", "Nazwa szablonu");
+    name.setAttribute("aria-label", "Template name");
     const duration = el("input");
     duration.type = "number";
     duration.min = "0.001";
     duration.step = "any";
-    duration.placeholder = "Czas (s), opcjonalnie";
-    duration.setAttribute("aria-label", "Informacyjny czas trwania w sekundach");
+    duration.placeholder = "Duration (s), optional";
+    duration.setAttribute("aria-label", "Informational duration in seconds");
     const notes = el("textarea");
     notes.rows = 2;
-    notes.placeholder = "Notatka: przeznaczenie referencji, uwagi do odtworzenia…";
+    notes.placeholder = "Notes: what the references are for, restore remarks…";
     notes.maxLength = 10000;
-    notes.setAttribute("aria-label", "Notatka do szablonu");
-    const save = el("button", "Zapisz nowy szablon");
+    notes.setAttribute("aria-label", "Template notes");
+    const save = el("button", "Save new template");
     save.type = "submit";
-    const hint = el("p", "Czas służy jako opis. Wartość odczytana z liczby klatek H3 jest przybliżona (24 fps); możesz ją poprawić lub zostawić pustą.", "h3-template-muted");
+    const hint = el("p", "The duration is descriptive only. A value read from the H3 frame count is approximate (24 fps); correct it or leave it empty.", "h3-template-muted");
     const sourceInfo = el("div", "", "h3-template-muted");
     let snapshot;
     try {
         snapshot = captureTemplate(app, node, getPrompt());
         duration.value = snapshot.duration ?? "";
-        sourceInfo.textContent = `Do skopiowania: ${snapshot.images.length} zdjęć. ` + snapshot.warnings.join(" ");
+        sourceInfo.textContent = `To copy: ${snapshot.images.length} image(s). ` + snapshot.warnings.join(" ");
     } catch (error) {
         sourceInfo.textContent = error.message;
         save.disabled = true;
@@ -61,12 +61,12 @@ export function openTemplates(node, getPrompt) {
     form.append(name, duration, notes, hint, sourceInfo, save);
     const message = el("p", "", "h3-template-message");
     message.setAttribute("role", "status");
-    const refresh = el("button", "Odśwież listę");
+    const refresh = el("button", "Refresh list");
     refresh.type = "button";
     const list = el("div", "", "h3-template-list");
     const preview = el("section", "", "h3-template-preview");
     dialog.append(form, message, refresh, list, preview,
-        el("p", "Biblioteka jest zapisywana na dysku serwera ComfyUI, w katalogu użytkownika szandor_h3_templates. Modele, LoRA i dodatkowe wtyczki nie są kopiowane; ich nazwy i ustawienia pozostają w workflow.", "h3-template-muted"));
+        el("p", "The library is stored on the ComfyUI server disk, in the user directory szandor_h3_templates. Models, LoRAs and other extensions are not copied; their names and settings stay in the workflow.", "h3-template-muted"));
     let busy = false;
     let selectionVersion = 0;
     let listVersion = 0;
@@ -94,7 +94,7 @@ export function openTemplates(node, getPrompt) {
             const data = await request(`/${templateId}`);
             if (version !== selectionVersion || !dialog.isConnected) return;
             selected = data.id;
-            preview.append(el("h3", data.name), el("p", `Czas: ${data.duration == null ? "nie podano" : `${data.duration} s`} · Zdjęcia: ${data.images.length}`));
+            preview.append(el("h3", data.name), el("p", `Duration: ${data.duration == null ? "not set" : `${data.duration} s`} · Images: ${data.images.length}`));
             if (data.notes) preview.append(el("p", data.notes));
             const prompt = el("pre", data.prompt, "h3-template-prompt");
             preview.append(prompt);
@@ -108,13 +108,13 @@ export function openTemplates(node, getPrompt) {
                 figure.append(image, el("figcaption", `${ref.label}\n${ref.original_name}`));
                 gallery.append(figure);
             }
-            const load = el("button", "Wczytaj cały workflow ze zdjęciami");
+            const load = el("button", "Load the whole workflow with images");
             load.type = "button";
             load.disabled = busy;
             load.onclick = async () => {
                 if (busy || selected !== data.id) return;
                 setBusy(true);
-                message.textContent = "Przywracanie kopii zdjęć i workflow…";
+                message.textContent = "Restoring image copies and the workflow…";
                 try {
                     const restored = await request(`/${data.id}/restore`, {});
                     await app.loadGraphData(restored.workflow);
@@ -123,15 +123,15 @@ export function openTemplates(node, getPrompt) {
                     message.textContent = error.message;
                 } finally { setBusy(false); }
             };
-            const remove = el("button", "Usuń szablon", "h3-template-delete");
+            const remove = el("button", "Delete template", "h3-template-delete");
             remove.type = "button";
             remove.disabled = busy;
             const confirmation = el("div", "", "h3-template-delete-confirm");
             confirmation.hidden = true;
-            const confirm = el("button", "Usuń trwale", "h3-template-delete");
-            const cancel = el("button", "Anuluj");
+            const confirm = el("button", "Delete permanently", "h3-template-delete");
+            const cancel = el("button", "Cancel");
             confirm.type = cancel.type = "button";
-            confirmation.append(el("p", `Usunąć szablon „${data.name}” i zdjęcia zapisane w jego bibliotece? Oryginalne zdjęcia oraz kopie już wczytane do workflow pozostaną na dysku.`), confirm, cancel);
+            confirmation.append(el("p", `Delete the template "${data.name}" and the images stored in its library? Original images and copies already loaded into workflows stay on disk.`), confirm, cancel);
             remove.onclick = () => {
                 if (busy) return;
                 confirmation.hidden = false;
@@ -141,13 +141,13 @@ export function openTemplates(node, getPrompt) {
             confirm.onclick = async () => {
                 if (busy || selected !== data.id) return;
                 setBusy(true);
-                message.textContent = "Usuwanie szablonu…";
+                message.textContent = "Deleting the template…";
                 try {
                     await request(`/${data.id}`, undefined, "DELETE");
                     selectionVersion++;
                     selected = null;
                     preview.replaceChildren();
-                    message.textContent = `Usunięto szablon „${data.name}”.`;
+                    message.textContent = `Deleted the template "${data.name}".`;
                     await reload();
                 } catch (error) { message.textContent = error.message; }
                 finally { setBusy(false); }
@@ -162,9 +162,9 @@ export function openTemplates(node, getPrompt) {
         const templates = await request();
         if (version !== listVersion || !dialog.isConnected) return;
         list.replaceChildren();
-        if (!templates.length) list.append(el("p", "Nie ma jeszcze zapisanych szablonów."));
+        if (!templates.length) list.append(el("p", "No saved templates yet."));
         for (const item of templates) {
-            const button = el("button", `${item.name} · ${item.images.length} zdjęć${item.duration == null ? "" : ` · ${item.duration} s`} · ${new Date(item.created_at).toLocaleString()}`);
+            const button = el("button", `${item.name} · ${item.images.length} image(s)${item.duration == null ? "" : ` · ${item.duration} s`} · ${new Date(item.created_at).toLocaleString()}`);
             button.type = "button";
             button.onclick = () => { if (!busy) show(item.id); };
             list.append(button);
@@ -181,12 +181,12 @@ export function openTemplates(node, getPrompt) {
             // Capture again at save time, including changes made before opening this dialog.
             snapshot = captureTemplate(app, node, getPrompt());
             setBusy(true);
-            message.textContent = "Zapisywanie workflow i kopiowanie zdjęć…";
+            message.textContent = "Saving the workflow and copying images…";
             const data = await request("", {
                 ...snapshot, name: name.value, duration: duration.value === "" ? null : Number(duration.value),
                 notes: [notes.value, ...snapshot.warnings].filter(Boolean).join("\n"),
             });
-            message.textContent = `Zapisano „${data.name}” wraz z ${data.images.length} zdjęciami.`;
+            message.textContent = `Saved "${data.name}" with ${data.images.length} image(s).`;
             await reload(data.id);
         } catch (error) { message.textContent = error.message; }
         finally { setBusy(false); }

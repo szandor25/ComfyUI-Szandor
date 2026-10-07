@@ -43,9 +43,10 @@ class MultiImageLoader:
         return inputs
 
     RETURN_TYPES = tuple(["IMAGE"] * MAX_IMAGES)
-    RETURN_NAMES = tuple([f"obraz_{i}" for i in range(1, MAX_IMAGES + 1)])
+    RETURN_NAMES = tuple([f"image_{i}" for i in range(1, MAX_IMAGES + 1)])
     FUNCTION = "load_images"
-    CATEGORY = "Moje Nody"
+    CATEGORY = "Szandor/Image"
+    DESCRIPTION = "Loads up to 16 images, each with its own picker; outputs follow image_count."
 
     def load_images(self, image_count: int, **kwargs):
         results = []
@@ -55,7 +56,7 @@ class MultiImageLoader:
                 try:
                     results.append(_load_image_tensor(val))
                 except Exception as e:
-                    print(f"[MultiImageLoader] Błąd ładowania '{val}': {e}")
+                    print(f"[MultiImageLoader] Error loading '{val}': {e}")
                     results.append(_blank())
             else:
                 results.append(_blank())
@@ -80,7 +81,7 @@ class MultiImageLoader:
         for i in range(1, image_count + 1):
             val = (kwargs.get(f"image_{i:02d}") or "").strip()
             if val and not folder_paths.exists_annotated_filepath(val):
-                return f"Plik nie istnieje: {val}"
+                return f"File does not exist: {val}"
         return True
 
 
