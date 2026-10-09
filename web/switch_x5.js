@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 
-const NODE_TYPE = "SzandorBooleanSwitches";
+const NODE_TYPE = "SzandorSwitchX5";
 const SWITCH_COUNT = 5;
 const NAMES_PROPERTY = "szandorSwitchNames";
 
@@ -13,7 +13,8 @@ function savedNames(node) {
 }
 
 // The name replaces the label of the toggle, of its widget socket and of the
-// matching output; an empty name brings back the default switch_N label.
+// matching output, and prefixes its on_true / on_false inputs; an empty name
+// brings back the default labels.
 function applyNames(node) {
     const names = savedNames(node);
     for (let i = 0; i < SWITCH_COUNT; i++) {
@@ -22,7 +23,11 @@ function applyNames(node) {
         if (widget) widget.label = label;
         const input = node.inputs?.find(slot => slot.widget?.name === switchName(i));
         if (input) input.label = label;
-        const output = node.outputs?.[i];
+        for (const branch of ["true", "false"]) {
+            const slot = node.inputs?.find(s => s.name === `on_${branch}_${i + 1}`);
+            if (slot) slot.label = label && `${label}: ${branch}`;
+        }
+        const output = node.outputs?.find(slot => slot.name === `out_${i + 1}`);
         if (output) output.label = label;
     }
     node.graph?.trigger?.("node:slot-label:changed", { nodeId: node.id });
@@ -41,7 +46,7 @@ function renameSwitch(node, i, event) {
 }
 
 app.registerExtension({
-    name: "Szandor.BooleanSwitches",
+    name: "Szandor.SwitchX5",
     beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== NODE_TYPE) return;
         const originalCreated = nodeType.prototype.onNodeCreated;
