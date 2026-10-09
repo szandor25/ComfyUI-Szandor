@@ -45,8 +45,61 @@ function renameSwitch(node, i, event) {
     }, event);
 }
 
+const isLink = value => Array.isArray(value) && value.length === 2;
+
+// All five switches live in one node, so in the backend graph every output
+// depends on every input; feeding out_1 into something upstream of on_true_2
+// would be rejected as a dependency cycle. Switches set by their widget are
+// therefore resolved here: consumers are linked straight to the selected
+// input, and the node is sent to the backend only for switches driven by a
+// connected boolean. The unselected branch stays unreferenced, so it does not
+// run, as with lazy inputs.
+export function inlineSwitches(output) {
+    const isSwitch = id => output[id]?.class_type === NODE_TYPE;
+    const constantSwitch = (node, i) => typeof node.inputs[`switch_${i}`] === "boolean";
+    const resolve = (link, seen = new Set()) => {
+        if (!isLink(link) || !isSwitch(link[0])) return link;
+        const node = output[link[0]];
+        const i = Number(link[1]) + 1;
+        if (!constantSwitch(node, i)) return link;
+        const key = `${link[0]}:${i}`;
+        if (seen.has(key)) return link;
+        seen.add(key);
+        const selected = node.inputs[node.inputs[`switch_${i}`] ? `on_true_${i}` : `on_false_${i}`];
+        return selected === undefined ? undefined : resolve(selected, seen);
+    };
+    for (const node of Object.values(output)) {
+        for (const [name, value] of Object.entries(node.inputs ?? {})) {
+            if (!isLink(value) || !isSwitch(value[0])) continue;
+            const resolved = resolve(value);
+            if (resolved === undefined) delete node.inputs[name];
+            else node.inputs[name] = resolved;
+        }
+    }
+    for (const id of Object.keys(output).filter(isSwitch)) {
+        const node = output[id];
+        for (let i = 1; i <= SWITCH_COUNT; i++) {
+            if (!constantSwitch(node, i)) continue;
+            delete node.inputs[`on_true_${i}`];
+            delete node.inputs[`on_false_${i}`];
+        }
+        const used = Object.values(output).some(other =>
+            Object.values(other.inputs ?? {}).some(value => isLink(value) && String(value[0]) === id));
+        if (!used) delete output[id];
+    }
+    return output;
+}
+
 app.registerExtension({
     name: "Szandor.SwitchX5",
+    setup() {
+        const originalGraphToPrompt = app.graphToPrompt;
+        app.graphToPrompt = async function (...args) {
+            const result = await originalGraphToPrompt.apply(this, args);
+            if (result?.output) inlineSwitches(result.output);
+            return result;
+        };
+    },
     beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== NODE_TYPE) return;
         const originalCreated = nodeType.prototype.onNodeCreated;
