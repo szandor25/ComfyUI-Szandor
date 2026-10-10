@@ -11,6 +11,7 @@ const KIND_PLURAL = {
 };
 const STATUS_LABELS = { success: "✓", error: "✗ error", interrupted: "⏹ interrupted", running: "▶ running", unknown: "?" };
 const COLORS = { device: "#ffb35c", allocated: "#8bc9ff", reserved: "#5a7fa8", rss: "#73e0ba" };
+const MB = 1024 ** 2;
 
 function installStyles() {
     if (document.getElementById("szandor-mem-style")) return;
@@ -410,26 +411,57 @@ function createMonitor(node) {
                 + "nodes with their own memory management (e.g. WanVideoWrapper) are not shown here.";
         } else {
             const head = modelsTable.createTHead().insertRow();
-            for (const text of ["Model", "Kind", "dtype", "Size", "In VRAM", ""]) head.append(el("th", "", text));
+            for (const [text, title] of [["Model"], ["Kind"], ["dtype"], ["Size"],
+                ["VRAM", "Weights on the GPU."],
+                ["RAM", "Weights kept in system RAM (the offload device), estimated the way ComfyUI does: size − VRAM part. "
+                    + "With dynamic loading only the RAM buffers are counted; the rest is read from disk when needed."],
+                [""]]) {
+                const th = el("th", "", text);
+                if (title) th.title = title;
+                head.append(th);
+            }
             const body = modelsTable.createTBody();
             for (const model of list) {
                 const row = body.insertRow();
                 const name = row.insertCell();
                 name.textContent = model.name;
+                const ram = model.ram ?? Math.max(0, (model.size || 0) - (model.loaded || 0));
+                const split = model.loaded > MB && ram > MB;
                 name.title = [`Load device: ${model.load_device}`, `Now: ${model.device}`,
                     model.patches ? `Patches (LoRA etc.): ${model.patches} weights` : "No patches",
-                    model.dynamic ? "Dynamic weight loading" : ""].filter(Boolean).join("\n");
-                if (model.patches) name.append(el("span", "mem-tag", `+${model.patches} patches`));
+                    model.dynamic ? "Dynamic weight loading" : "",
+                    model.pinned > 0 ? `Pinned RAM: ${formatBytes(model.pinned)}` : ""].filter(Boolean).join("\n");
+                name.className = "mem-model-name";
+                if (model.patches) {
+                    const tag = el("span", "mem-tag", `+${model.patches}`);
+                    tag.title = `${model.patches} patched weights (LoRA etc.)`;
+                    name.append(tag);
+                }
+                if (split) {
+                    const tag = el("span", "mem-tag mem-split", "split");
+                    tag.title = "Partially loaded (lowvram): the model did not fit in VRAM, so ComfyUI streams the RAM part "
+                        + "to the GPU while computing — slower than a full load. Freeing VRAM before this node lets it load fully.";
+                    name.append(tag);
+                }
                 row.insertCell().append(el("span", `mem-kind k-${model.kind}`, model.kind_label));
                 row.insertCell().textContent = model.dtype || "—";
                 row.insertCell().textContent = formatBytes(model.size);
+                const percent = value => (model.size > 0 ? Math.round((value / model.size) * 100) : 0);
                 const loadedCell = row.insertCell();
-                const fraction = model.size > 0 ? model.loaded / model.size : 0;
+                // One bar per model: GPU part, then RAM part; an empty rest is on disk (dynamic loading).
                 const mini = el("div", "mem-mini");
-                const fill = el("span");
-                fill.style.width = `${Math.min(100, fraction * 100)}%`;
-                mini.append(fill);
-                loadedCell.append(mini, el("small", "", `${formatBytes(model.loaded)} · ${Math.round(fraction * 100)}%`));
+                for (const [value, className] of [[model.loaded, "m-vram"], [ram, "m-ram"]]) {
+                    const fill = el("span", className);
+                    fill.style.width = `${model.size > 0 ? Math.min(100, (value / model.size) * 100) : 0}%`;
+                    mini.append(fill);
+                }
+                mini.title = `VRAM ${formatBytes(model.loaded)} · RAM ${formatBytes(ram)}`
+                    + (model.dynamic && model.size - model.loaded - ram > MB ? ` · not resident ${formatBytes(model.size - model.loaded - ram)}` : "");
+                loadedCell.title = `${percent(model.loaded)}% of the model in VRAM`;
+                loadedCell.append(mini, el("small", "", formatBytes(model.loaded)));
+                const ramCell = row.insertCell();
+                ramCell.title = `${percent(ram)}% of the model in RAM`;
+                ramCell.append(el("small", "", ram > MB ? formatBytes(ram) : "—"));
                 const unload = button("⏏", busy ? "Unavailable while a job runs — use the Memory Cleanup node."
                     : "Unload this model from VRAM (it stays in RAM).");
                 unload.disabled = busy || !(model.loaded > 0);
@@ -437,10 +469,14 @@ function createMonitor(node) {
                 row.insertCell().append(unload);
             }
         }
-        const totalLoaded = list.reduce((sum, m) => sum + (m.loaded || 0), 0);
-        const totalSize = list.reduce((sum, m) => sum + (m.size || 0), 0);
+        // Clones share their base model's weights, so each base counts once.
+        const bases = [...new Map(list.map(m => [m.base ?? m.id, m])).values()];
+        const sum = pick => bases.reduce((total, m) => total + (pick(m) || 0), 0);
+        const totalLoaded = sum(m => m.loaded);
+        const totalRam = sum(m => m.ram ?? Math.max(0, (m.size || 0) - (m.loaded || 0)));
+        const totalSize = sum(m => m.size);
         modelsFooter.textContent = list.length
-            ? `In VRAM: ${formatBytes(totalLoaded)} of ${formatBytes(totalSize)} · an unloaded model stays in RAM while the ComfyUI cache holds it.`
+            ? `In VRAM: ${formatBytes(totalLoaded)} · in RAM: ${formatBytes(totalRam)} · of ${formatBytes(totalSize)} total · an unloaded model stays in RAM while the ComfyUI cache holds it.`
             : "";
         kindActions.replaceChildren();
         for (const kind of KIND_ORDER) {

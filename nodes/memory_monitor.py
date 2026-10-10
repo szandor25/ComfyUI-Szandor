@@ -181,14 +181,35 @@ def _loaded_models():
     return [lm for lm in list(mm.current_loaded_models) if lm.model is not None]
 
 
+def model_memory(patcher, load_device):
+    """Where the model's weights are: (vram, ram, pinned) in bytes.
+
+    Mirrors ComfyUI's own accounting in model_management.load_models_gpu: a partially
+    loaded (lowvram) model keeps the remaining weights on the offload device, so
+    ram = size - vram; dynamic (aimdo) loading tracks its host buffers directly and
+    may leave the rest on disk. A model whose load device is the CPU uses no VRAM."""
+    # Older ComfyUI versions lack some of these methods.
+    def read(name):
+        method = getattr(patcher, name, None)
+        return (_try(method, default=0) or 0) if callable(method) else 0
+
+    size = read("model_size")
+    vram = 0 if str(load_device).startswith("cpu") else read("loaded_size")
+    ram = read("loaded_ram_size") if read("is_dynamic") else max(0, size - vram)
+    return vram, ram, read("pinned_memory_size")
+
+
 def list_models():
     models = []
     for lm in _loaded_models():
         patcher = lm.model
         try:
             kind = classify(patcher)
+            vram, ram, pinned = model_memory(patcher, lm.device)
             models.append({
                 "id": str(id(patcher)),
+                # Clones (e.g. with LoRA) share the base model's weights; totals count them once.
+                "base": str(id(getattr(patcher, "model", patcher))),
                 "name": model_name(patcher, kind),
                 "kind": kind,
                 "kind_label": KIND_LABELS[kind],
@@ -196,7 +217,9 @@ def list_models():
                 "load_device": str(lm.device),
                 "dtype": model_dtype(patcher),
                 "size": _try(patcher.model_size, default=0),
-                "loaded": _try(patcher.loaded_size, default=0),
+                "loaded": vram,
+                "ram": ram,
+                "pinned": pinned,
                 "patches": len(getattr(patcher, "patches", None) or {}),
                 "dynamic": bool(_try(patcher.is_dynamic, default=False)),
             })

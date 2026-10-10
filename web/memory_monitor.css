@@ -66,14 +66,17 @@
 .szandor-mem .mem-table tr.mem-hover-row td { background: #3a4a6655; }
 .szandor-mem .mem-table td.mem-empty { white-space: normal; color: #6f7a8d; padding: 10px; }
 .szandor-mem .mem-table button { padding: 1px 6px; }
-.szandor-mem .mem-tag { margin-left: 6px; padding: 0 4px; border-radius: 3px; background: #2f2640; color: #e0acff; font-size: 10px; }
+.szandor-mem .mem-table td.mem-model-name { white-space: normal; overflow-wrap: anywhere; min-width: 90px; }
+.szandor-mem .mem-tag { white-space: nowrap; margin-left: 6px; padding: 0 4px; border-radius: 3px; background: #2f2640; color: #e0acff; font-size: 10px; }
 .szandor-mem .mem-kind { padding: 0 5px; border-radius: 3px; background: #262e3e; font-size: 10px; }
 .szandor-mem .k-diffusion { color: #ffc879; }
 .szandor-mem .k-text_encoder { color: #8bc9ff; }
 .szandor-mem .k-vae { color: #73e0ba; }
 .szandor-mem .k-controlnet { color: #e0acff; }
-.szandor-mem .mem-mini { width: 70px; height: 6px; background: #0e1015; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
-.szandor-mem .mem-mini span { display: block; height: 100%; background: #8bc9ff; }
+.szandor-mem .mem-mini { width: 48px; height: 6px; background: #0e1015; border-radius: 3px; overflow: hidden; display: inline-flex; vertical-align: middle; margin-right: 6px; }
+.szandor-mem .mem-mini span { display: block; height: 100%; flex: none; background: #8bc9ff; }
+.szandor-mem .mem-mini span.m-ram { background: #73e0ba; }
+.szandor-mem .mem-tag.mem-split { background: #3d3020; color: #ffc879; cursor: help; }
 .szandor-mem .mem-run-select { flex: 1; }
 .szandor-mem .mem-hover { color: #8490a5; }
 .szandor-mem .mem-message { flex-shrink: 0; min-height: 15px; font-size: 11px; color: #8490a5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

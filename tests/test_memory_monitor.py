@@ -142,6 +142,21 @@ class ModelTests(unittest.TestCase):
         self.assertEqual((models[0]["dtype"], models[2]["loaded"], models[3]["patches"]),
                          ("float8_e4m3fn", 20 * 1024 ** 3, 2))
         self.assertEqual(models[0]["id"], str(id(self.te)))
+        # Partially loaded (lowvram): the rest of the weights stays in RAM; a LoRA clone shares the base.
+        self.assertEqual((models[2]["loaded"], models[2]["ram"]), (20 * 1024 ** 3, 8 * 1024 ** 3))
+        self.assertEqual((models[0]["ram"], models[0]["pinned"]), (0, 0))
+        self.assertEqual(models[2]["base"], models[3]["base"])
+        self.assertNotEqual(models[0]["base"], models[1]["base"])
+
+    def test_model_memory_cpu_and_dynamic_loading(self):
+        cpu = FakePatcher(make_class("CLIP", "comfy.sd")(), size=6 * 1024 ** 3)
+        self.assertEqual(self.m.model_memory(cpu, "cpu"), (0, 6 * 1024 ** 3, 0))
+        dynamic = FakePatcher(make_class("Flux", "comfy.model_base")(), size=24 * 1024 ** 3, loaded=10 * 1024 ** 3)
+        dynamic.is_dynamic = lambda: True
+        dynamic.loaded_ram_size = lambda: 5 * 1024 ** 3
+        dynamic.pinned_memory_size = lambda: 2 * 1024 ** 3
+        # The remaining 9 GB is not resident: dynamic loading reads it from disk on demand.
+        self.assertEqual(self.m.model_memory(dynamic, "cuda:0"), (10 * 1024 ** 3, 5 * 1024 ** 3, 2 * 1024 ** 3))
 
     def test_unload_kind_keeps_other_models(self):
         names = self.m.unload_models(lambda p: self.m.classify(p) == "text_encoder")

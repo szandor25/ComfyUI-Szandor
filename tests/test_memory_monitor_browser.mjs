@@ -19,7 +19,7 @@ const stats = {
     policy: { vram_state: "HIGH_VRAM", extra_reserved: 0.7 * GB, smart_memory: true, flags: ["--highvram"] },
     models: [
         { id: "11", name: "WanT5Model", kind: "text_encoder", kind_label: "text encoder", device: "cuda:0", load_device: "cuda:0", dtype: "float8_e4m3fn", size: 9.8 * GB, loaded: 9.8 * GB, patches: 0, dynamic: false },
-        { id: "22", name: "WAN22_T2V", kind: "diffusion", kind_label: "model dyfuzji", device: "cuda:0", load_device: "cuda:0", dtype: "bfloat16", size: 28.6 * GB, loaded: 20 * GB, patches: 400, dynamic: false },
+        { id: "22", name: "WAN22_T2V", kind: "diffusion", kind_label: "diffusion model", device: "cuda:0", load_device: "cuda:0", dtype: "bfloat16", size: 28.6 * GB, loaded: 20 * GB, ram: 8.6 * GB, pinned: 0, base: "b22", patches: 400, dynamic: false },
         { id: "33", name: "WanVAE", kind: "vae", kind_label: "VAE", device: "cpu", load_device: "cuda:0", dtype: "bfloat16", size: 0.25 * GB, loaded: 0, patches: 0, dynamic: false },
     ],
     time: 1000, busy: false, serial: 1, current: null,
@@ -169,7 +169,14 @@ try {
     await waitFor("monitor.element.querySelectorAll('.mem-table tbody tr').length === 3", "model rows");
     assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-table tbody tr')].map(r => r.cells[0].firstChild.textContent)"),
         ["WAN22_T2V", "WanT5Model", "WanVAE"]);
-    assert.match(await evaluate("monitor.element.querySelector('.mem-table tbody tr').cells[4].textContent"), /20\.0 GB · 70%/);
+    assert.match(await evaluate("monitor.element.querySelector('.mem-table tbody tr').cells[4].textContent"), /20\.0 GB/);
+    assert.equal(await evaluate("monitor.element.querySelector('.mem-table tbody tr').cells[4].title"), "70% of the model in VRAM");
+    // Partially loaded model: the rest is in RAM, shown in its own column and in the split bar.
+    assert.equal(await evaluate("monitor.element.querySelector('.mem-table tbody tr').cells[5].textContent"), "8.6 GB");
+    assert.equal(await evaluate("monitor.element.querySelector('.mem-table tbody tr .mem-split')?.textContent"), "split");
+    assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-table tbody tr')[1].cells[5].textContent"), "—");
+    assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-table tbody tr .mem-split').length"), 1);
+    assert.match(await evaluate("q('.mem-page:not([hidden]) .mem-line.mem-dim').textContent"), /^In VRAM: 29\.8 GB · in RAM: 8\.8 GB · of 38\.7 GB total/);
     assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-table tbody tr')[2].querySelector('button').disabled"), true);
     assert.equal(await evaluate("monitor.element.querySelector('.mem-tabs button:nth-child(2)').textContent"), "Models (3)");
     await screenshot("models");
