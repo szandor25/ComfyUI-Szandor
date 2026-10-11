@@ -245,6 +245,49 @@ try {
         await cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", key: keyName, code, windowsVirtualKeyCode: vk, modifiers });
         await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: keyName, code, windowsVirtualKeyCode: vk, modifiers });
     };
+
+    // Find and replace: Ctrl+F takes the selection, Enter / Shift+Enter move, Aa, Replace, All + one undo, Esc.
+    const findState = () => evaluate(`(() => { const bar=document.querySelector('.h3-findbar');
+      return { open:!bar.hidden, count:bar.querySelector('.h3-find-count').textContent,
+               marks:document.querySelectorAll('.h3-matches .h3-match').length, value:widget.value }; })()`);
+    await evaluate("widget.value = 'A red car. The RED door.\\nred sky'; widget.inputEl.focus(); widget.inputEl.setSelectionRange(2, 5)");
+    await key("f", "KeyF", 70, 2);
+    await settle();
+    assert.deepEqual(await findState(), { open:true, count:"1/3", marks:3, value:"A red car. The RED door.\nred sky" });
+    assert.equal(await evaluate("document.activeElement === document.querySelector('.h3-find-input')"), true);
+    assert.equal(await evaluate("document.querySelector('.h3-find-input').value"), "red");
+    await key("Enter", "Enter", 13);
+    assert.equal((await findState()).count, "2/3");
+    assert.equal(await evaluate("widget.inputEl.value.slice(widget.inputEl.selectionStart, widget.inputEl.selectionEnd)"), "RED");
+    await key("Enter", "Enter", 13, 8);
+    assert.equal((await findState()).count, "1/3");
+    await evaluate("document.querySelector('.h3-find-small[title=\"Match case\"]').click()");
+    assert.equal((await findState()).count, "1/2");
+    await evaluate("document.querySelectorAll('.h3-find-input')[1].focus()");
+    await cdp("Input.insertText", { text: "blue" });
+    await key("Enter", "Enter", 13);
+    await settle();
+    assert.deepEqual(await findState(), { open:true, count:"1/1", marks:1, value:"A blue car. The RED door.\nred sky" });
+    await evaluate("document.querySelector('.h3-find-small[title=\"Match case\"]').click()");
+    assert.equal((await findState()).count, "1/2");
+    await evaluate("[...document.querySelectorAll('.h3-find-small')].find(b => b.textContent === 'All').click()");
+    await settle();
+    assert.deepEqual(await findState(), { open:true, count:"2 replaced", marks:0, value:"A blue car. The blue door.\nblue sky" });
+    await evaluate("widget.inputEl.focus()");
+    await key("z", "KeyZ", 90, 2);
+    await settle();
+    assert.equal(await evaluate("widget.value"), "A blue car. The RED door.\nred sky", "Replace all is one undo step");
+    assert.equal((await findState()).marks, 2, "matches follow edits in the prompt");
+    await evaluate("document.querySelector('.h3-find-input').focus()");
+    if (process.env.H3_SCREENSHOT) {
+        const shot = await cdp("Page.captureScreenshot", { format: "png" });
+        await writeFile(process.env.H3_SCREENSHOT.replace(/\.png$/i, "-find.png"), Buffer.from(shot.data, "base64"));
+    }
+    await key("Escape", "Escape", 27);
+    await settle();
+    assert.deepEqual(await findState(), { open:false, count:"", marks:0, value:"A blue car. The RED door.\nred sky" });
+    assert.equal(await evaluate("document.activeElement === widget.inputEl"), true);
+    assert.match(await evaluate("document.querySelector('.h3-snippets option[value=\"dialogue\"]').textContent"), /^Dialogue <d>…<\/d> \(kwestia mówiona/);
     const type = async chars => { for (const ch of chars) await cdp("Input.insertText", { text: ch }); await settle(); };
     const popup = () => evaluate("(() => { const l=document.querySelector('.h3-completions'); return l.hidden ? null : [...l.querySelectorAll('.h3-completion-label')].map(e=>e.textContent); })()");
     await evaluate("widget.value = 'A woman <Subject 1> walks.\\n'; widget.inputEl.focus(); widget.inputEl.setSelectionRange(widget.inputEl.value.length, widget.inputEl.value.length)");
@@ -373,7 +416,7 @@ try {
     await evaluate("widget.onRemove()");
     assert.equal(await evaluate("document.querySelectorAll('.szandor-h3-editor').length"), 0);
     assert.deepEqual(errors, []);
-    console.log("PASS: native input, autocomplete (typing, keys, mouse, undo, Ctrl+Space, toggle), clipboard replacement + undo/failure/empty/race, TXT/JSON drops + Unicode/CRLF/BOM/prompt keys/undo/serialization/empty/invalid/multiple/race/failure, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
+    console.log("PASS: native input, find and replace (Ctrl+F, navigation, match case, replace, replace all + undo, Esc), Polish Insert hints, autocomplete (typing, keys, mouse, undo, Ctrl+Space, toggle), clipboard replacement + undo/failure/empty/race, TXT/JSON drops + Unicode/CRLF/BOM/prompt keys/undo/serialization/empty/invalid/multiple/race/failure, HTML escaping, insertion + undo, diagnostics, wrap/scroll alignment, zoomed resize, workflow round-trip, template save/load/delete/cancel, cleanup.");
 } finally {
     chrome.kill();
     await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));

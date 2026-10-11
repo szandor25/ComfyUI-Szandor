@@ -15,6 +15,19 @@
 .szandor-h3-editor .h3-button:hover { background: #37445d; }
 .szandor-h3-editor .h3-paste { flex-shrink: 0; }
 .szandor-h3-editor .h3-paste:disabled { opacity: .55; cursor: wait; }
+.szandor-h3-editor .h3-find-toggle { flex-shrink: 0; }
+.szandor-h3-editor .h3-find-toggle[aria-expanded="true"] { border-color: #8bc9ff; }
+.szandor-h3-editor .h3-findbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 5px 7px; flex-shrink: 0; border-bottom: 1px solid #343c4d; }
+.szandor-h3-editor .h3-findbar[hidden] { display: none; }
+.szandor-h3-editor .h3-find-input {
+    flex: 1 1 90px; min-width: 70px; border: 1px solid #4b5670; border-radius: 4px;
+    background: #1d2330; color: #e8edf5; padding: 3px 6px; font: inherit;
+}
+.szandor-h3-editor .h3-find-small { padding: 3px 6px; flex-shrink: 0; }
+.szandor-h3-editor .h3-find-small:disabled { opacity: .45; cursor: default; }
+.szandor-h3-editor .h3-find-small[aria-pressed="true"] { border-color: #8bc9ff; background: #37445d; }
+.szandor-h3-editor .h3-find-count { min-width: 34px; text-align: center; color: #a9b5c9; font-size: 11px; white-space: nowrap; }
+.szandor-h3-editor .h3-find-count.h3-find-none { color: #ff9aa5; }
 .szandor-h3-editor .h3-clipboard-status { margin: 0; padding: 5px 8px; flex-shrink: 0; color: #ffc879; font-size: 11px; }
 .szandor-h3-editor :focus-visible { outline: 2px solid #a8caff; outline-offset: -2px; }
 .szandor-h3-editor .h3-guide { flex: 0 1 auto; max-height: 42%; overflow: auto; padding: 4px 10px 10px; line-height: 1.5; border-bottom: 1px solid #343c4d; }
@@ -31,6 +44,11 @@
     white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
     tab-size: 4; text-transform: none; text-indent: 0;
 }
+/* Match marks under the syntax layer: transparent text, only the backgrounds show. */
+.szandor-h3-editor .h3-matches { pointer-events: none; overflow: hidden; color: transparent; background: transparent; }
+.szandor-h3-editor .h3-matches:empty { display: none; }
+.szandor-h3-editor .h3-match { color: transparent; background: #6b5a1f; border-radius: 2px; }
+.szandor-h3-editor .h3-match-current { background: #b08a1c; box-shadow: 0 0 0 1px #ffd76a; }
 .szandor-h3-editor .h3-highlight { pointer-events: none; overflow: hidden; color: #dce3ee; background: transparent; }
 .szandor-h3-editor .h3-input {
     resize: none; overflow: auto; color: transparent; -webkit-text-fill-color: transparent;
@@ -72,6 +90,7 @@
 .szandor-h3-editor .h3-grip { cursor: nwse-resize; touch-action: none; user-select: none; padding: 3px 7px; color: #a8baff; }
 @media (forced-colors: active) {
     .szandor-h3-editor .h3-highlight { visibility: hidden; }
+    .szandor-h3-editor .h3-match { background: Highlight; }
     .szandor-h3-editor .h3-input { color: CanvasText; -webkit-text-fill-color: CanvasText; caret-color: CanvasText; }
 }
 

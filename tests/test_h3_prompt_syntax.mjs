@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { analyzePrompt, highlightPrompt, SNIPPETS } from "../web/h3_prompt_syntax.js";
+import { analyzePrompt, highlightPrompt, SNIPPET_HINTS_PL, SNIPPETS } from "../web/h3_prompt_syntax.js";
 
 test("official base and reference syntax, standalone boundary tags and paired dialogue", () => {
     const text = "subject_definitions: <Subject 1> in <Picture 1>, <Video 2>, <Audio 3>\n" +
@@ -42,4 +42,11 @@ test("insertion templates produce balanced dialogue and expose the six Ref2VA fi
     assert.deepEqual(analyzePrompt(prefix + "Zażółć gęślą jaźń!" + suffix).issues, []);
     const reference = SNIPPETS.find(s => s[0] === "reference").slice(2).join("");
     assert.equal(analyzePrompt(reference).tokens.filter(t => t.kind === "section").length, 6);
+});
+
+test("every Insert item has a short Polish description", () => {
+    const missing = SNIPPETS.map(([id]) => id).filter(id => !SNIPPET_HINTS_PL[id]);
+    assert.deepEqual(missing, []);
+    const unused = Object.keys(SNIPPET_HINTS_PL).filter(id => !SNIPPETS.some(([snippet]) => snippet === id));
+    assert.deepEqual(unused, []);
 });

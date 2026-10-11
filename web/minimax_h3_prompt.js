@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js";
-import { analyzePrompt, highlightPrompt, SNIPPET_GROUPS, SNIPPETS } from "./h3_prompt_syntax.js";
+import { analyzePrompt, highlightPrompt, SNIPPET_GROUPS, SNIPPET_HINTS_PL, SNIPPETS } from "./h3_prompt_syntax.js";
 import { createAutocomplete } from "./h3_autocomplete.js";
+import { createFindReplace } from "./h3_find_replace.js";
 import { openTemplates } from "./h3_templates.js";
 
 const NODE_TYPE = "SzandorMiniMaxH3Prompt";
@@ -54,7 +55,7 @@ export function createEditor(node, name, inputData) {
         const group = element("optgroup");
         group.label = groupLabel;
         for (const [id, label] of items) {
-            const option = element("option", "", label);
+            const option = element("option", "", SNIPPET_HINTS_PL[id] ? `${label} (${SNIPPET_HINTS_PL[id]})` : label);
             option.value = id;
             group.append(option);
         }
@@ -112,7 +113,9 @@ export function createEditor(node, name, inputData) {
     input.title = "Drop a .txt or .json file (prompt field) to replace the whole prompt.";
     input.value = inputData?.[1]?.default ?? "";
     templates.addEventListener("click", () => openTemplates(node, () => input.value));
-    surface.append(mirror, input);
+    const find = createFindReplace({ input, onChange: () => scheduleRender(), onFallbackEdit: () => changed() });
+    toolbar.insertBefore(find.toggle, help);
+    surface.append(find.layer, mirror, input);
 
     const footer = element("div", "h3-footer");
     const status = element("button", "h3-status");
@@ -121,7 +124,7 @@ export function createEditor(node, name, inputData) {
     grip.title = "Drag to resize. The size is saved in the workflow.";
     grip.setAttribute("aria-hidden", "true");
     footer.append(status, grip);
-    root.append(toolbar, clipboardStatus, guide, surface, footer);
+    root.append(toolbar, find.bar, clipboardStatus, guide, surface, footer);
 
     let analysis;
     let issueIndex = 0;
@@ -129,14 +132,17 @@ export function createEditor(node, name, inputData) {
     let disposed = false;
     function syncScroll() {
         // Match the text viewport exactly, including a non-overlay scrollbar.
-        mirror.style.width = `${input.clientWidth}px`;
-        mirror.style.height = `${input.clientHeight}px`;
-        mirror.scrollTop = input.scrollTop;
-        mirror.scrollLeft = input.scrollLeft;
+        for (const layer of [mirror, find.layer]) {
+            layer.style.width = `${input.clientWidth}px`;
+            layer.style.height = `${input.clientHeight}px`;
+            layer.scrollTop = input.scrollTop;
+            layer.scrollLeft = input.scrollLeft;
+        }
     }
     function render() {
         analysis = analyzePrompt(input.value);
         mirror.innerHTML = highlightPrompt(input.value, analysis, input.selectionStart);
+        find.refresh();
         const count = analysis.issues.length;
         status.textContent = count ? `⚠ ${count} ${count === 1 ? "hint" : "hints"} — ${analysis.issues[issueIndex % count].message}` : "<d> dialogue · [ ] shot / language · < > references · Ctrl+Space suggestions";
         suggest.setAttribute("aria-pressed", String(autocompleteEnabled()));
