@@ -14,7 +14,10 @@ const GB = 1024 ** 3;
 
 const stats = {
     gpu: { name: "Test GPU 96GB", total: 96 * GB, used: 61 * GB, free: 35 * GB, allocated: 52 * GB, reserved: 58 * GB,
-        peak_allocated: 70 * GB, peak_reserved: 74 * GB, peak: 73 * GB, utilization: 97, temperature: 71 },
+        peak_allocated: 70 * GB, peak_reserved: 74 * GB, peak: 73 * GB, utilization: 97, temperature: 71,
+        speed: { source: "nvml", core_clock: 2512, core_clock_max: 3090, memory_clock: 13365, memory_clock_max: 14001, memory_busy: 6,
+            power: 555.6, power_limit: 600, pstate: 1, fan: 46, pcie_gen: 5, pcie_width: 8, pcie_gen_max: 5, pcie_width_max: 16,
+            pcie_rx: 176 * 1024 ** 2, pcie_tx: 57 * 1024 ** 2, idle: false, slowdown: ["power limit"] } },
     ram: { total: 128 * GB, used: 67 * GB, available: 61 * GB, process: 41 * GB, swap_used: 2 * GB, swap_total: 16 * GB, pinned: 3 * GB },
     policy: { vram_state: "HIGH_VRAM", extra_reserved: 0.7 * GB, smart_memory: true, flags: ["--highvram"] },
     models: [
@@ -159,6 +162,10 @@ try {
     assert.match(legends[0], /^VRAM 61\.0 GB \/ 96\.0 GB · allocated 52\.0 GB · cache 6\.0 GB · other 3\.0 GB$/);
     assert.match(legends[1], /RAM 67\.0 GB \/ 128\.0 GB · ComfyUI 41\.0 GB · swap 2\.0 GB · pinned 3\.0 GB/);
     assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-cell b')].map(e => e.textContent)"), ["52.0 GB", "58.0 GB", "73.0 GB", "35.0 GB"]);
+    assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-speed-item')].map(e => e.textContent)"), [
+        "Core2512 / 3090 MHz", "Memory13365 / 14001 MHz · 6% busy", "Power556 / 600 W",
+        "PCIe5.0 x8 (max 5.0 x16) ↓176 MB/s ↑57 MB/s", "StateP1", "Fan46%", "Slowed bypower limit"]);
+    assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-speed-item.mem-warn').length"), 2, "narrow PCIe link and slowdown are highlighted");
     assert.equal(await evaluate("q('.mem-policy').textContent"), "HIGH_VRAM");
     assert.match(await evaluate("q('.mem-policy').title"), /--highvram/);
     assert.equal(await evaluate("q('.mem-chip').textContent"), "idle");

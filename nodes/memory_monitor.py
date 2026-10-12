@@ -34,6 +34,11 @@ try:
 except Exception:
     cli_args = None
 
+try:  # nvidia-ml-py — zegary, moc i PCIe kart NVIDIA (Linux i Windows)
+    import pynvml
+except Exception:
+    pynvml = None
+
 HISTORY_RUNS = 5
 SAMPLE_INTERVAL = 0.25
 MAX_SAMPLES = 4000
@@ -51,6 +56,19 @@ POLICY_FLAGS = ("gpu_only", "highvram", "normalvram", "lowvram", "novram", "cpu"
                 "disable_smart_memory", "reserve_vram", "cache_none", "cache_lru", "cache_ram")
 
 _PROCESS = psutil.Process()
+
+# Bity NVML "clocks event reasons" (dawniej "throttle reasons") — dlaczego zegar jest niższy od maksimum.
+GPU_IDLE_REASON = 0x1
+SLOWDOWN_REASONS = (
+    (0x4, "power limit"),
+    (0x80, "power brake"),
+    (0x20, "temperature (driver)"),
+    (0x40, "temperature (hardware)"),
+    (0x8, "hardware slowdown"),
+    (0x2, "application clocks"),
+    (0x100, "display clocks"),
+    (0x10, "sync boost"),
+)
 
 
 class AnyType(str):
@@ -106,6 +124,80 @@ def gpu_stats(device):
         # Wymagają pynvml / amdsmi; bez nich po prostu ich nie pokazujemy.
         "utilization": _try(torch.cuda.utilization, device),
         "temperature": _try(getattr(torch.cuda, "temperature", None), device),
+    }
+
+
+_nvml_handles = {}
+
+
+def _nvml_handle(device):
+    """Uchwyt NVML tej samej karty co urządzenie PyTorcha (dopasowanie po adresie PCI)."""
+    if pynvml is None or torch.version.hip:
+        return None
+    index = device.index if device.index is not None else torch.cuda.current_device()
+    if index not in _nvml_handles:
+        if not _nvml_handles:
+            pynvml.nvmlInit()
+        props = torch.cuda.get_device_properties(index)
+        try:
+            bus_id = f"{props.pci_domain_id:08x}:{props.pci_bus_id:02x}:{props.pci_device_id:02x}.0"
+            handle = pynvml.nvmlDeviceGetHandleByPciBusId(bus_id)
+        except Exception:  # starszy PyTorch bez adresu PCI
+            handle = pynvml.nvmlDeviceGetHandleByIndex(torch.cuda._get_nvml_device_index(index))
+        _nvml_handles[index] = handle
+    return _nvml_handles[index]
+
+
+def _scaled(value, factor):
+    return value * factor if isinstance(value, (int, float)) else None
+
+
+def gpu_speed(device):
+    """Zegary, moc, łącze PCIe i powody zwolnienia karty. Odczyt PCIe trwa ~20 ms — wołać poza pętlą zdarzeń."""
+    if device is None:
+        return None
+    handle = _try(_nvml_handle, device)
+    if handle is None:
+        # ROCm (amdsmi) albo brak nvidia-ml-py: tylko to, co poda PyTorch.
+        clock = _try(torch.cuda.clock_rate, device)
+        power = _try(torch.cuda.power_draw, device)
+        if not clock and not power:
+            hint = ("Install amdsmi (ROCm) for clocks and power." if torch.version.hip
+                    else "Install nvidia-ml-py for clocks, power and PCIe.")
+            return {"source": None, "hint": hint}
+        # amdsmi podaje moc w W, NVML w mW.
+        return {"source": "torch", "core_clock": clock or None,
+                "power": _scaled(power, 1 if torch.version.hip else 0.001) if power else None}
+    nvml = pynvml
+
+    def read(name, *args):
+        fn = getattr(nvml, name, None)
+        return _try(fn, handle, *args) if fn else None
+
+    reasons = read("nvmlDeviceGetCurrentClocksEventReasons")
+    if reasons is None:
+        reasons = read("nvmlDeviceGetCurrentClocksThrottleReasons")
+    utilization = read("nvmlDeviceGetUtilizationRates")
+    return {
+        "source": "nvml",
+        "core_clock": read("nvmlDeviceGetClockInfo", nvml.NVML_CLOCK_GRAPHICS),
+        "core_clock_max": read("nvmlDeviceGetMaxClockInfo", nvml.NVML_CLOCK_GRAPHICS),
+        "memory_clock": read("nvmlDeviceGetClockInfo", nvml.NVML_CLOCK_MEM),
+        "memory_clock_max": read("nvmlDeviceGetMaxClockInfo", nvml.NVML_CLOCK_MEM),
+        "memory_busy": getattr(utilization, "memory", None),
+        "power": _scaled(read("nvmlDeviceGetPowerUsage"), 0.001),
+        "power_limit": _scaled(read("nvmlDeviceGetEnforcedPowerLimit"), 0.001),
+        "pstate": read("nvmlDeviceGetPerformanceState"),
+        "fan": read("nvmlDeviceGetFanSpeed"),
+        "pcie_gen": read("nvmlDeviceGetCurrPcieLinkGeneration"),
+        "pcie_width": read("nvmlDeviceGetCurrPcieLinkWidth"),
+        "pcie_gen_max": read("nvmlDeviceGetMaxPcieLinkGeneration"),
+        "pcie_width_max": read("nvmlDeviceGetMaxPcieLinkWidth"),
+        # KB/s → B/s; RX = do karty (np. wczytywanie wag), TX = z karty.
+        "pcie_rx": _scaled(read("nvmlDeviceGetPcieThroughput", nvml.NVML_PCIE_UTIL_RX_BYTES), 1024),
+        "pcie_tx": _scaled(read("nvmlDeviceGetPcieThroughput", nvml.NVML_PCIE_UTIL_TX_BYTES), 1024),
+        "idle": bool(reasons & GPU_IDLE_REASON) if reasons is not None else None,
+        "slowdown": [label for bit, label in SLOWDOWN_REASONS if reasons and reasons & bit],
     }
 
 
@@ -514,6 +606,7 @@ async def szandor_memory_stats(request):
     gpu = _try(gpu_stats, device)
     if gpu is not None:
         gpu["peak"] = max(recorder.global_peak, gpu["peak_allocated"])
+        gpu["speed"] = await asyncio.to_thread(_try, gpu_speed, device)
     return web.json_response({
         "gpu": gpu, "ram": ram_stats(), "policy": memory_policy(),
         "models": list_models(), "time": time.time(), **recorder.live(),

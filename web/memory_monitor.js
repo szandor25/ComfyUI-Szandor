@@ -141,6 +141,53 @@ function drawLine(ctx, points, color, xOf, yOf) {
     ctx.stroke();
 }
 
+const isNum = Number.isFinite;
+const pcieGen = gen => (isNum(gen) ? `${gen}.0` : "?");
+
+/** GPU speed readout as [label, value, tooltip, warn] items; empty when nothing is known. */
+export function speedItems(speed) {
+    if (!speed?.source) return [];
+    const items = [];
+    const clock = (value, max) => (isNum(max) && max > 0 ? `${value} / ${max} MHz` : `${value} MHz`);
+    if (isNum(speed.core_clock)) {
+        items.push(["Core", clock(speed.core_clock, speed.core_clock_max),
+            "GPU core clock: now / maximum boost. Lower than maximum when idle, or when slowed by power or temperature.", false]);
+    }
+    if (isNum(speed.memory_clock)) {
+        const busy = isNum(speed.memory_busy) ? ` · ${speed.memory_busy}% busy` : "";
+        items.push(["Memory", clock(speed.memory_clock, speed.memory_clock_max) + busy,
+            "VRAM clock: now / maximum, and how busy the memory controller is (% of time reading or writing).", false]);
+    }
+    if (isNum(speed.power)) {
+        const limit = isNum(speed.power_limit) && speed.power_limit > 0;
+        items.push(["Power", `${Math.round(speed.power)}${limit ? ` / ${Math.round(speed.power_limit)}` : ""} W`,
+            "Power draw now" + (limit ? " / the card's power limit. Near the limit, the clocks drop." : "."), false]);
+    }
+    if (isNum(speed.pcie_gen) && isNum(speed.pcie_width)) {
+        const narrow = isNum(speed.pcie_width_max) && speed.pcie_width < speed.pcie_width_max;
+        const slower = isNum(speed.pcie_gen_max) && speed.pcie_gen < speed.pcie_gen_max;
+        const max = narrow || slower ? ` (max ${pcieGen(speed.pcie_gen_max)} x${speed.pcie_width_max})` : "";
+        const traffic = isNum(speed.pcie_rx) && isNum(speed.pcie_tx)
+            ? ` ↓${formatBytes(speed.pcie_rx)}/s ↑${formatBytes(speed.pcie_tx)}/s` : "";
+        items.push(["PCIe", `${pcieGen(speed.pcie_gen)} x${speed.pcie_width}${max}${traffic}`,
+            "PCIe link: generation × lanes now, and traffic to the card (↓, e.g. loading or streaming weights) and from it (↑). "
+            + "The generation drops at idle to save power — check it under load. "
+            + (narrow ? `Fewer lanes than the card supports (x${speed.pcie_width_max}): the slot or a shared slot limits it, which slows loading and offloading. ` : ""),
+            narrow]);
+    }
+    if (isNum(speed.pstate)) {
+        items.push(["State", `P${speed.pstate}`, "Performance state: P0 = full speed, higher numbers = power saving.", false]);
+    }
+    if (isNum(speed.fan)) items.push(["Fan", `${speed.fan}%`, "Fan speed as % of maximum.", false]);
+    if (speed.slowdown?.length) {
+        items.push(["Slowed by", speed.slowdown.join(", "),
+            "Why the clocks are below maximum right now (reported by the driver).", true]);
+    } else if (speed.idle) {
+        items.push(["", "idle", "The GPU has no work, so the clocks are lowered.", false]);
+    }
+    return items;
+}
+
 // ─── panel monitora ───────────────────────────────────────────────────────────
 
 function createMonitor(node) {
@@ -163,6 +210,7 @@ function createMonitor(node) {
     const gpuExtra = el("span", "mem-dim");
     const policyChip = el("span", "mem-chip mem-policy");
     gpuLine.append(gpuName, gpuExtra, el("span", "mem-spacer"), policyChip);
+    const speedLine = el("div", "mem-line mem-speed");
     const vramBar = el("div", "mem-bar");
     const vramLegend = el("div", "mem-legend");
     const grid = el("div", "mem-grid");
@@ -199,7 +247,7 @@ function createMonitor(node) {
         reset_peak: button("Reset peak", "Resets the Peak value."),
     };
     actions.append(...Object.values(actionButtons));
-    live.append(gpuLine, vramBar, vramLegend, grid, ramBar, ramLegend, liveCanvas, liveChartLegend, currentBox, actions);
+    live.append(gpuLine, speedLine, vramBar, vramLegend, grid, ramBar, ramLegend, liveCanvas, liveChartLegend, currentBox, actions);
 
     // Modele
     const models = el("div", "mem-page");
@@ -295,6 +343,20 @@ function createMonitor(node) {
         }
     }
 
+    function renderSpeed(speed) {
+        speedLine.replaceChildren();
+        const items = speedItems(speed);
+        for (const [label, value, title, warn] of items) {
+            const item = el("span", `mem-speed-item${warn ? " mem-warn" : ""}`);
+            item.title = title;
+            if (label) item.append(el("small", "", label));
+            item.append(el("b", "", value));
+            speedLine.append(item);
+        }
+        if (!items.length && speed?.hint) speedLine.append(el("span", "mem-dim", speed.hint));
+        speedLine.hidden = !speedLine.childElementCount;
+    }
+
     function renderLive() {
         const s = state.stats;
         if (!s) return;
@@ -305,6 +367,7 @@ function createMonitor(node) {
             if (Number.isFinite(gpu.utilization)) extra.push(`${gpu.utilization}%`);
             if (Number.isFinite(gpu.temperature)) extra.push(`${gpu.temperature}°C`);
             gpuExtra.textContent = extra.join(" · ");
+            renderSpeed(gpu.speed);
             const other = Math.max(0, gpu.used - gpu.reserved);
             segment(vramBar, [
                 [gpu.allocated, "b-allocated", "PyTorch allocated"],
@@ -321,6 +384,7 @@ function createMonitor(node) {
             cells.free.textContent = formatBytes(gpu.free);
         } else {
             gpuName.textContent = "No CUDA / ROCm GPU";
+            renderSpeed(null);
             gpuExtra.textContent = "showing RAM only";
             vramBar.replaceChildren();
             vramLegend.textContent = "";

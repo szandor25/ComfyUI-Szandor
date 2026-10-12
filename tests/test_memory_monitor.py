@@ -274,5 +274,74 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(self.sent[-1][0], "execution_start")
 
 
+class FakeNvml:
+    NVML_CLOCK_GRAPHICS, NVML_CLOCK_MEM = 0, 2
+    NVML_PCIE_UTIL_TX_BYTES, NVML_PCIE_UTIL_RX_BYTES = 0, 1
+
+    def __init__(self, reasons):
+        self.reasons = reasons
+        clocks = {0: 1800, 2: 9000}
+        self.nvmlDeviceGetClockInfo = lambda h, kind: clocks[kind]
+        self.nvmlDeviceGetMaxClockInfo = lambda h, kind: clocks[kind] + 1000
+        self.nvmlDeviceGetUtilizationRates = lambda h: SimpleNamespace(gpu=99, memory=40)
+        self.nvmlDeviceGetPowerUsage = lambda h: 450_500
+        self.nvmlDeviceGetEnforcedPowerLimit = lambda h: 450_000
+        self.nvmlDeviceGetPerformanceState = lambda h: 0
+        self.nvmlDeviceGetCurrPcieLinkGeneration = lambda h: 4
+        self.nvmlDeviceGetCurrPcieLinkWidth = lambda h: 8
+        self.nvmlDeviceGetMaxPcieLinkGeneration = lambda h: 4
+        self.nvmlDeviceGetMaxPcieLinkWidth = lambda h: 16
+        self.nvmlDeviceGetPcieThroughput = lambda h, kind: 2048 if kind == 1 else 1
+
+    def nvmlDeviceGetCurrentClocksEventReasons(self, handle):
+        return self.reasons
+
+    def nvmlDeviceGetFanSpeed(self, handle):
+        raise RuntimeError("NVML_ERROR_NOT_SUPPORTED")  # karty bez wentylatora
+
+
+class SpeedTests(unittest.TestCase):
+    def setUp(self):
+        self.m = load_module()[0]
+        self.device = torch.device("cuda:0")
+
+    def test_nvml_values_units_and_slowdown_reasons(self):
+        with patch.object(self.m, "pynvml", FakeNvml(0x4 | 0x40)), patch.object(self.m, "_nvml_handle", lambda d: "h"):
+            speed = self.m.gpu_speed(self.device)
+        self.assertEqual(speed["source"], "nvml")
+        self.assertEqual((speed["core_clock"], speed["core_clock_max"]), (1800, 2800))
+        self.assertEqual((speed["memory_clock"], speed["memory_busy"]), (9000, 40))
+        self.assertAlmostEqual(speed["power"], 450.5)
+        self.assertEqual(speed["power_limit"], 450)
+        self.assertEqual((speed["pcie_gen"], speed["pcie_width"], speed["pcie_width_max"]), (4, 8, 16))
+        self.assertEqual((speed["pcie_rx"], speed["pcie_tx"]), (2048 * 1024, 1024))
+        self.assertIsNone(speed["fan"])
+        self.assertEqual(speed["slowdown"], ["power limit", "temperature (hardware)"])
+        self.assertFalse(speed["idle"])
+
+    def test_idle_card_has_no_slowdown(self):
+        with patch.object(self.m, "pynvml", FakeNvml(0x1)), patch.object(self.m, "_nvml_handle", lambda d: "h"):
+            speed = self.m.gpu_speed(self.device)
+        self.assertTrue(speed["idle"])
+        self.assertEqual(speed["slowdown"], [])
+
+    def test_without_nvml_falls_back_to_torch_or_a_hint(self):
+        with patch.object(self.m, "pynvml", None), patch.object(torch.version, "hip", None), \
+                patch.object(torch.cuda, "clock_rate", lambda d: 2100, create=True), \
+                patch.object(torch.cuda, "power_draw", lambda d: 300_000, create=True):
+            self.assertEqual(self.m.gpu_speed(self.device), {"source": "torch", "core_clock": 2100, "power": 300.0})
+        with patch.object(self.m, "pynvml", None), patch.object(torch.version, "hip", "6.4"), \
+                patch.object(torch.cuda, "clock_rate", lambda d: 2400, create=True), \
+                patch.object(torch.cuda, "power_draw", lambda d: 250, create=True):
+            self.assertEqual(self.m.gpu_speed(self.device)["power"], 250, "amdsmi reports watts")
+
+        def fail(device):
+            raise ModuleNotFoundError("nvidia-ml-py")
+        with patch.object(self.m, "pynvml", None), patch.object(torch.version, "hip", None), \
+                patch.object(torch.cuda, "clock_rate", fail, create=True), patch.object(torch.cuda, "power_draw", fail, create=True):
+            self.assertEqual(self.m.gpu_speed(self.device), {"source": None, "hint": "Install nvidia-ml-py for clocks, power and PCIe."})
+        self.assertIsNone(self.m.gpu_speed(None))
+
+
 if __name__ == "__main__":
     unittest.main()

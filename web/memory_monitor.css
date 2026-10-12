@@ -27,6 +27,15 @@
 .szandor-mem .mem-policy { cursor: help; color: #e0acff; }
 .szandor-mem .mem-page { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow: hidden; }
 .szandor-mem .mem-strong { color: #e8edf5; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.szandor-mem .mem-speed { flex-wrap: wrap; row-gap: 3px; }
+.szandor-mem .mem-speed-item {
+    display: inline-flex; align-items: baseline; gap: 4px; padding: 1px 6px; border-radius: 4px;
+    background: #10131a; border: 1px solid #2d3340; white-space: nowrap; cursor: help; font-size: 11px;
+}
+.szandor-mem .mem-speed-item small { color: #8490a5; font-size: 10px; }
+.szandor-mem .mem-speed-item b { color: #e8edf5; font-weight: 600; }
+.szandor-mem .mem-speed-item.mem-warn { border-color: #8a6a2a; background: #2a2416; }
+.szandor-mem .mem-speed-item.mem-warn b { color: #ffc879; }
 .szandor-mem .mem-dim { color: #8490a5; font-size: 11px; }
 .szandor-mem .mem-bar {
     display: flex; height: 14px; flex-shrink: 0; overflow: hidden;
