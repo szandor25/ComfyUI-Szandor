@@ -29,7 +29,7 @@ Wszystkie nody mają angielskie nazwy i interfejs, sufiks **(Szandor)** w nazwie
     *   **Źródła składni**: oficjalne poradniki MiniMax [T2VA / klatki kluczowe](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/base-en.txt) i [Ref2VA](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/skills/h3-prompt-writing/references/ref-en.txt), sprawdzone 2026-09-09. Opisują zalecany format rozbudowanego promptu; node pozwala też swobodnie pisać zwykły tekst.
 *   **Alibaba Wan 2.1 / Qwen Image Gen (Szandor)** (`QwenImageGenNode`, `Szandor/API`): Wysyła prompt do API generowania obrazów DashScope. Pozwala wybrać model, proporcje i seed; zwraca obraz oraz oryginalny prompt. Wymaga `DASHSCOPE_API_KEY`. Pole `negative_prompt` jest obecnie widoczne, ale nie jest przesyłane do API.
 *   **Universal LLM Gateway Pro (Szandor)** (`UniversalLLMNode`, `Szandor/LLM`): Wszechstronny węzeł obsługujący wielu dostawców (OpenAI, DeepSeek, X.AI/Grok, Alibaba Qwen). Pozwala na generowanie tekstu i chat wewnątrz ComfyUI. Konfiguracja odbywa się przez `config.json`.
-    *   **Ustawienia generowania**: opcjonalny `reasoning_effort`, większy zakres `max_tokens` oraz formaty `text`, `json_object` i `json_schema`. Parametry są dobierane do dostawcy i modelu; `auto`/`text` zachowują domyślne działanie starszych workflowów. [Obsługiwane modele, ograniczenia i przykład JSON Schema](docs/universal_llm.md).
+    *   **Ustawienia generowania**: opcjonalny `reasoning_effort`, większy zakres `max_tokens` oraz formaty `text`, `json_object` i `json_schema`. Parametry są dobierane do dostawcy i modelu; `auto`/`text` zachowują domyślne działanie starszych workflowów. Opcjonalny log żądań w terminalu (`console_log`) i pamięć rozmowy (`conversation_memory`). [Obsługiwane modele, ograniczenia i przykład JSON Schema](docs/universal_llm.md).
 *   **Qwen / Wan Resolution Selector (Szandor)** (`QwenWanResolutionNode`, `Szandor/API`): Wybierz preset proporcji i rozdzielczości. Wyjścia `width`, `height` i `text_info` zawierają szerokość, wysokość i opis wybranego ustawienia.
 
 ### 🧪 Testowanie LoRA (LoRA Testing)
@@ -135,6 +135,7 @@ W katalogu zainstalowanego zestawu wykonaj `git pull --ff-only`, następnie zres
 
 ## 📝 Ostatnie zmiany
 
+*   **2026-10-14 — Universal LLM Gateway Pro: log i pamięć rozmowy**: `console_log` wypisuje w terminalu pełne żądanie wysyłane do API i odpowiedź; `conversation_memory` (`off` / `on` / `reset`) i `memory_turns` pozwalają prowadzić rozmowę z pamięcią albo wysyłać każde zapytanie bez historii.
 *   **2026-10-12 — Memory Monitor: szybkość karty**: zegary rdzenia i pamięci, pobór mocy wobec limitu, łącze i transfer PCIe, stan P, wentylator i powód spowolnienia (NVIDIA na Linux i Windows; zegar i moc na AMD).
 *   **2026-10-11 — Edytor H3: szukaj i zamień, polskie opisy**: pasek szukania i zamiany (🔍, Ctrl+F) z podświetleniem trafień, rozróżnianiem wielkości liter i zamianą wszystkich naraz; pozycje listy Insert mają krótkie polskie opisy w nawiasach.
 *   **2026-10-09 — If/Else Switch x5**: pięć niezależnych przełączników If/Else (`on_true` / `on_false` → `out`) z własnymi nazwami w jednym węźle.
@@ -187,7 +188,7 @@ Every node has an English name and interface, the **(Szandor)** suffix, and a sh
     *   **TXT / JSON files**: drop one UTF-8 `.txt` file onto the editor's text area or toolbar to replace the entire prompt. From a `.json` file only the prompt is inserted (`prompt`, or `text` / `positive` when empty, as in **Folder Media + Prompt Loader**); times and other fields are ignored. A JSON without a prompt leaves the text unchanged. An image dropped together with its JSON is ignored. Characters and line breaks are preserved; Ctrl+Z undoes the change, and the text persists in the workflow. Empty files leave the prompt intact. Files are read locally in the browser.
 *   **Alibaba Wan 2.1 / Qwen Image Gen (Szandor)** (`QwenImageGenNode`, `Szandor/API`): Calls the DashScope image generation API with a prompt, model, aspect ratio, and seed; returns the image and original prompt. Requires `DASHSCOPE_API_KEY`. The current `negative_prompt` field is not forwarded to the API.
 *   **Universal LLM Gateway Pro (Szandor)** (`UniversalLLMNode`, `Szandor/LLM`): A versatile node supporting multiple providers (OpenAI, DeepSeek, X.AI/Grok, Alibaba Qwen). Allows for text generation and chat capabilities directly within ComfyUI. Configurable via `config.json`.
-    *   **Generation controls**: optional `reasoning_effort`, a larger `max_tokens` range, and `text`, `json_object`, or `json_schema` output. Parameters are adapted to each provider/model; `auto`/`text` preserve the default behavior of existing workflows. [Supported models, limitations, and a JSON Schema example (Polish)](docs/universal_llm.md).
+    *   **Generation controls**: optional `reasoning_effort`, a larger `max_tokens` range, and `text`, `json_object`, or `json_schema` output. Parameters are adapted to each provider/model; `auto`/`text` preserve the default behavior of existing workflows. Optional request logging in the terminal (`console_log`) and conversation memory (`conversation_memory`). [Supported models, limitations, and a JSON Schema example (Polish)](docs/universal_llm.md).
 *   **Qwen / Wan Resolution Selector (Szandor)** (`QwenWanResolutionNode`, `Szandor/API`): Select an aspect-ratio/resolution preset to obtain `width`, `height`, and a `text_info` description.
 
 ### 🧪 LoRA Testing Tools
@@ -292,6 +293,7 @@ Run `git pull --ff-only` inside the installed repository, restart ComfyUI, and r
 
 ## 📝 Recent changes
 
+*   **2026-10-14 — Universal LLM Gateway Pro: request log and conversation memory**: `console_log` prints the full request sent to the API and the response in the terminal; `conversation_memory` (`off` / `on` / `reset`) and `memory_turns` let the node keep a conversation or send every request without history.
 *   **2026-10-12 — Memory Monitor: GPU speed**: core and memory clocks, power draw against the limit, PCIe link and traffic, P-state, fan, and slowdown reasons (NVIDIA on Linux and Windows; clock and power on AMD).
 *   **2026-10-11 — H3 editor: find and replace, Polish hints**: a find and replace bar (🔍, Ctrl+F) with highlighted matches, match case and replace all; Insert items show short Polish descriptions in parentheses.
 *   **2026-10-09 — If/Else Switch x5**: five independent, named If/Else switches (`on_true` / `on_false` → `out`) in one node.

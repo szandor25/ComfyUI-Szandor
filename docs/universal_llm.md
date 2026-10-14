@@ -29,6 +29,30 @@ są opcjonalne i znajdują się za istniejącymi polami. Stare workflowy używaj
 - `json_schema`: sam schemat, bez otoczki `response_format`. Pole jest
   ignorowane w trybach `text` i `json_object`.
 
+## Log w terminalu i pamięć rozmowy
+
+- `console_log`: `usage` to jedna linia z modelem, tokenami i czasem (jak
+  dotychczas). `request` dodatkowo wypisuje pełne żądanie wysyłane do API —
+  adres endpointu i JSON z modelem, instrukcją systemową, historią, promptem
+  i parametrami (bez klucza API). `request + response` wypisuje też tekst
+  odpowiedzi.
+- `conversation_memory`:
+  - `off` — każde zapytanie idzie bez historii rozmowy (domyślnie). Zapisana
+    historia nie jest kasowana, więc można zadać jednorazowe pytanie i wrócić
+    do `on`.
+  - `on` — node wysyła wcześniejsze pytania i odpowiedzi tego węzła, a po
+    udanej odpowiedzi dopisuje bieżącą wymianę.
+  - `reset` — kasuje historię tego węzła i zaczyna nową rozmowę od bieżącego
+    promptu. Potem przełącz z powrotem na `on`.
+- `memory_turns`: ile ostatnich par pytanie/odpowiedź jest pamiętanych
+  i wysyłanych (domyślnie 10). Każda wymiana zwiększa liczbę tokenów promptu.
+
+Historia jest osobna dla każdego węzła, trzymana w pamięci ComfyUI i znika po
+jego restarcie. Instrukcja systemowa nie jest zapisywana — zawsze wysyłana
+jest bieżąca. Błędy i odpowiedzi ucięte przez limit tokenów nie trafiają do
+historii. ComfyUI nie uruchamia ponownie węzła z niezmienionymi wejściami, więc
+aby zadać to samo pytanie jeszcze raz, zmień prompt albo `seed`.
+
 `temperature` pozostaje pomijane dla OpenAI GPT-5 i GPT-6 Astra. W trybie
 myślenia DeepSeek ten parametr nie steruje odpowiedzią. Zmiana poziomu
 rozumowania nie jest odpowiednikiem zmiany kreatywności.

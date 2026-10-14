@@ -281,6 +281,61 @@ class GatewayTests(unittest.TestCase):
             ), ("answer",))
         self.assertNotIn("reasoning_effort", self.create.call_args.kwargs)
 
+    def test_new_options_are_appended_after_existing_widgets(self):
+        optional = list(self.module.UniversalLLMNode.INPUT_TYPES()["optional"])
+        self.assertEqual(optional[-3:], ["console_log", "conversation_memory", "memory_turns"])
+
+    def test_memory_off_sends_no_history(self):
+        for prompt in ("first", "second"):
+            self.generate("OpenAI", "gpt-4o", prompt=prompt, unique_id="5")
+        self.assertEqual([m["role"] for m in self.create.call_args.kwargs["messages"]], ["system", "user"])
+        self.assertEqual(self.module.CONVERSATIONS, {})
+
+    def test_memory_on_sends_history_per_node_and_off_skips_it(self):
+        self.create.side_effect = lambda **kw: SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content="re: " + kw["messages"][-1]["content"]),
+            finish_reason="stop")], usage=None)
+        self.generate("OpenAI", "gpt-4o", prompt="first", conversation_memory="on", unique_id="5")
+        self.generate("OpenAI", "gpt-4o", prompt="other node", conversation_memory="on", unique_id="6")
+        self.generate("OpenAI", "gpt-4o", prompt="one-off", conversation_memory="off", unique_id="5")
+        self.assertEqual(len(self.create.call_args.kwargs["messages"]), 2)
+        self.generate("OpenAI", "gpt-4o", prompt="second", conversation_memory="on", unique_id="5")
+        self.assertEqual(self.create.call_args.kwargs["messages"], [
+            {"role": "system", "content": "instruction"},
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "re: first"},
+            {"role": "user", "content": "second"},
+        ])
+        self.generate("OpenAI", "gpt-4o", prompt="fresh", conversation_memory="reset", unique_id="5")
+        self.assertEqual(len(self.create.call_args.kwargs["messages"]), 2)
+        self.assertEqual(len(self.module.CONVERSATIONS["5"]), 2)
+        self.assertEqual(len(self.module.CONVERSATIONS["6"]), 2)
+
+    def test_memory_turns_limits_history_and_errors_are_not_saved(self):
+        for prompt in ("a", "b", "c"):
+            self.generate("OpenAI", "gpt-4o", prompt=prompt, conversation_memory="on", memory_turns=2)
+        self.assertEqual([m["content"] for m in self.module.CONVERSATIONS["default"]],
+                         ["b", "answer", "c", "answer"])
+        self.create.side_effect = RuntimeError("boom")
+        self.assertIn("API error", self.generate("OpenAI", "gpt-4o", prompt="d", conversation_memory="on")[0])
+        self.assertEqual(len(self.module.CONVERSATIONS["default"]), 4)
+
+    def test_console_log_prints_request_and_response(self):
+        config = [{"provider": "OpenAI", "env_key": "TEST_LLM_KEY",
+                   "baseurl": "https://example.invalid/v1", "models": {"Model": "gpt-4o"}}]
+        for mode, expected in (("usage", 1), ("request", 2), ("request + response", 3)):
+            with self.subTest(mode=mode), patch.object(self.module, "load_llm_config", return_value=config),                     patch.dict(self.module.os.environ, {"TEST_LLM_KEY": "test-key"}),                     patch("builtins.print") as printed:
+                self.module.UniversalLLMNode().generate("pytanie", "OpenAI: Model", "None", "instruction",
+                                                        0.7, 1024, console_log=mode)
+                output = [str(call.args[0]) for call in printed.call_args_list]
+                self.assertEqual(len(output), expected)
+                if mode != "usage":
+                    self.assertIn("chat/completions", output[0])
+                    self.assertIn('"content": "pytanie"', output[0])
+                    self.assertNotIn("test-key", output[0])
+                if mode == "request + response":
+                    self.assertIn("answer", output[2])
+
 
 if __name__ == "__main__":
     unittest.main()

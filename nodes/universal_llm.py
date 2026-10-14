@@ -15,6 +15,8 @@ INSTRUCTIONS_DIR = os.path.join(PROJECT_ROOT, "system_instructions")
 
 REASONING_EFFORTS = ["auto", "none", "low", "medium", "high", "xhigh", "max"]
 OUTPUT_FORMATS = ["text", "json_object", "json_schema"]
+CONSOLE_LOGS = ["usage", "request", "request + response"]
+MEMORY_MODES = ["off", "on", "reset"]
 DEFAULT_JSON_SCHEMA = json.dumps({
     "type": "object",
     "properties": {"text": {"type": "string"}},
@@ -160,6 +162,15 @@ def _responses_payload(chat_payload):
         payload["temperature"] = chat_payload["temperature"]
     return payload
 
+# Historia rozmowy w pamięci procesu, osobno dla każdego węzła (unique_id);
+# znika po restarcie ComfyUI. Instrukcja systemowa nie jest zapisywana.
+CONVERSATIONS = {}
+
+
+def _log_block(title, text):
+    print(f"[UniversalLLM] ----- {title} -----\n{text}\n[UniversalLLM] ----- end of {title} -----")
+
+
 # Automatyczne tworzenie folderu na instrukcje
 if not os.path.exists(INSTRUCTIONS_DIR):
     os.makedirs(INSTRUCTIONS_DIR)
@@ -230,7 +241,14 @@ class UniversalLLMNode:
                     "tooltip": "text = plain answer; json_object = valid JSON; json_schema = the structure from the field below. DeepSeek uses Responses for json_schema."}),
                 "json_schema": ("STRING", {"multiline": True, "default": DEFAULT_JSON_SCHEMA,
                     "tooltip": "The JSON Schema itself; used only with output_format=json_schema. Root type object, every field in required, additionalProperties=false."}),
-            }
+                "console_log": (CONSOLE_LOGS, {"default": "usage",
+                    "tooltip": "usage = one summary line; request = also the full request sent to the API (without the key); request + response = also the answer text."}),
+                "conversation_memory": (MEMORY_MODES, {"default": "off",
+                    "tooltip": "off = every request is independent (saved history is kept, not sent); on = send earlier exchanges of this node and remember this one; reset = forget the history and start a new conversation with this prompt."}),
+                "memory_turns": ("INT", {"default": 10, "min": 1, "max": 200,
+                    "tooltip": "How many latest question/answer pairs are kept and sent when conversation_memory is on."}),
+            },
+            "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
     RETURN_TYPES = ("STRING",)
@@ -241,7 +259,8 @@ class UniversalLLMNode:
 
     def generate(self, prompt, selected_model, instruction_file, system_instruction_fallback,
                  temperature, max_tokens, thinking_budget=0, seed=0, reasoning_effort="auto",
-                 output_format="text", json_schema=DEFAULT_JSON_SCHEMA):
+                 output_format="text", json_schema=DEFAULT_JSON_SCHEMA, console_log="usage",
+                 conversation_memory="off", memory_turns=10, unique_id=None):
         if ": " not in selected_model:
             return ("Error: configure config.json and restart ComfyUI.",)
 
@@ -277,11 +296,21 @@ class UniversalLLMNode:
                 return (f"Settings error: {real_model_id}: max_tokens must be within 1–{token_limit}.",)
             if not 0 <= thinking_budget <= 16000:
                 return ("Settings error: thinking_budget must be within 0–16000.",)
+            if conversation_memory not in MEMORY_MODES:
+                return (f"Settings error: unknown conversation_memory: {conversation_memory}.",)
+
+            memory_key = str(unique_id) if unique_id is not None else "default"
+            if conversation_memory == "reset":
+                CONVERSATIONS.pop(memory_key, None)
+            history = []
+            if conversation_memory != "off":
+                history = CONVERSATIONS.get(memory_key, [])[-2 * max(1, memory_turns):]
 
             payload = {
                 "model": real_model_id,
                 "messages": [
                     {"role": "system", "content": final_system},
+                    *history,
                     {"role": "user", "content": prompt}
                 ],
             }
@@ -306,12 +335,20 @@ class UniversalLLMNode:
                 reasoning_effort, output_format, json_schema,
             )
 
+            request = _responses_payload(payload) if api_mode == "responses" else payload
+            if console_log != "usage":
+                endpoint = "responses" if api_mode == "responses" else "chat/completions"
+                _log_block(
+                    f"request → {provider_data['baseurl'].rstrip('/')}/{endpoint}",
+                    json.dumps(request, ensure_ascii=False, indent=2, default=str),
+                )
+
             client = OpenAI(api_key=api_key, base_url=provider_data["baseurl"])
             start_time = time.time()
             if api_mode == "responses":
                 if not hasattr(client, "responses"):
                     raise RuntimeError("JSON Schema for DeepSeek needs a newer openai package. Update the node dependencies.")
-                completion = client.responses.create(**_responses_payload(payload))
+                completion = client.responses.create(**request)
                 if getattr(completion, "error", None):
                     raise RuntimeError(f"Responses API: {completion.error}")
                 status = getattr(completion, "status", None)
@@ -325,7 +362,7 @@ class UniversalLLMNode:
                 finish_reason = status
                 details_key, input_key, output_key = "output_tokens_details", "input_tokens", "output_tokens"
             else:
-                completion = client.chat.completions.create(**payload)
+                completion = client.chat.completions.create(**request)
                 choice = completion.choices[0]
                 refusal = getattr(choice.message, "refusal", None)
                 if refusal:
@@ -346,10 +383,14 @@ class UniversalLLMNode:
                     f"{reasoning_part} total={usage.total_tokens} tokens"
                 )
 
+            memory_info = (f" | memory: {len(history) // 2} earlier exchange(s)"
+                           if conversation_memory != "off" else "")
             print(
                 f"[UniversalLLM] {provider_name}: {friendly_name} | {usage_info} | "
-                f"finish_reason={finish_reason} | {elapsed:.2f}s"
+                f"finish_reason={finish_reason} | {elapsed:.2f}s{memory_info}"
             )
+            if console_log == "request + response":
+                _log_block("response", content)
 
             if output_format != "text":
                 if finish_reason not in ("stop", "completed"):
@@ -374,7 +415,12 @@ class UniversalLLMNode:
                     f"Increase 'max_tokens' in the node and try again."
                 )
                 print(warning)
-                content = warning
+                return (warning,)
+
+            if conversation_memory != "off":
+                turns = history + [{"role": "user", "content": prompt},
+                                   {"role": "assistant", "content": content}]
+                CONVERSATIONS[memory_key] = turns[-2 * max(1, memory_turns):]
 
             return (content,)
 
