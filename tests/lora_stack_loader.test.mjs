@@ -24,10 +24,10 @@ function setup(
     return { context, node, getExtension: () => extension };
 }
 
-test("trigger text and checkbox survive a workflow round trip", () => {
+test("trigger text, notes and checkbox survive a workflow round trip", () => {
     const { context, node } = setup();
     const rows = [{ name: "style.safetensors", enabled: true, strength: 0.8,
-        trigger: "magic style, detailed", use_trigger: true }];
+        trigger: "magic style, detailed", use_trigger: true, notes: "  Uwagi: siła 0,8\nDrugi wiersz  " }];
     const widget = context.makeWidget(node, JSON.stringify(rows));
     assert.deepEqual(JSON.parse(widget.serializeValue()), rows);
     widget.setRowsFromValue();
@@ -54,14 +54,14 @@ test("late metadata does not replace a manual edit or a changed LoRA", async () 
     assert.equal(widget.rows[0].trigger, "manual");
 });
 
-test("trigger checkbox does not toggle LoRA and upper slider still works", async () => {
+test("trigger checkbox does not toggle LoRA and strength buttons work independently", async () => {
     const { context, node } = setup();
     const widget = context.makeWidget(node, '[{"name":"style","enabled":true,"strength":1,"trigger":"test"}]');
     await widget.mouse({ type: "pointerdown" }, [20, 92]);
     assert.equal(widget.rows[0].use_trigger, true);
     assert.equal(widget.rows[0].enabled, true);
     await widget.mouse({ type: "pointerdown" }, [482, 60]);
-    assert.equal(widget.rows[0].strength, 2);
+    assert.equal(widget.rows[0].strength, 1.05);
     await widget.mouse({ type: "pointerup" }, [482, 60]);
     await widget.mouse({ type: "pointerdown" }, [20, 56]);
     assert.equal(widget.rows[0].enabled, false);
@@ -107,11 +107,13 @@ test("training suggestions can be selected and saved without auto-activating wor
     }
     context.document = { body: new Element("body"), createElement: tag => new Element(tag) };
     const row = { name: "private.safetensors", trigger: "", use_trigger: false };
-    let saved;
-    vm.runInContext("editTrigger", context)(row, text => { saved = text; });
+    let saved, savedNotes;
+    vm.runInContext("editTrigger", context)(row, (text, notes) => { saved = text; savedNotes = notes; });
     await new Promise(resolve => setImmediate(resolve));
     const panel = context.document.body.children[0].children[0];
-    const input = panel.children.find(child => child.tag === "textarea");
+    const input = panel.children[1].children[0];
+    const notes = panel.children[5].children[0];
+    notes.value = "My notes\nRecommended strength 0.75";
     const suggestions = panel.children[4];
     assert.equal(input.value, "");
     assert.equal(suggestions.children.length, 2);
@@ -119,9 +121,16 @@ test("training suggestions can be selected and saved without auto-activating wor
     suggestions.children[0].onclick();
     assert.equal(input.value, "private_person");
     assert.equal(row.trigger, "");
-    panel.children[5].children.find(button => button.textContent === "Save").onclick();
+    panel.children[6].children.find(button => button.textContent === "Save").onclick();
     assert.equal(saved, "private_person");
+    assert.equal(savedNotes, "My notes\nRecommended strength 0.75");
     assert.equal(row.use_trigger, false);
+
+    vm.runInContext("editTrigger", context)({ ...row, notes: "existing" }, () => assert.fail("Cancel must not save"));
+    const cancelled = context.document.body.children[1].children[0];
+    assert.equal(cancelled.children[5].children[0].value, "existing");
+    cancelled.children[5].children[0].value = "discard this";
+    cancelled.children[6].children.find(button => button.textContent === "Cancel").onclick();
 });
 
 function setupStack(count, limit = 10) {
@@ -148,7 +157,7 @@ test("column boundaries size the stack and keep the original LoRA order", () => 
     }
 });
 
-test("controls in later columns target the correct LoRA, including slider dragging", async () => {
+test("controls in later columns target the correct LoRA, including strength buttons", async () => {
     const { widget, node } = setupStack(30);
     await widget.mouse({ type: "pointerdown" }, [520 + 20, 56]);
     assert.equal(widget.rows[10].enabled, false);
@@ -157,10 +166,9 @@ test("controls in later columns target the correct LoRA, including slider draggi
     assert.equal(widget.rows[20].use_trigger, true);
     assert.equal(widget.rows[10].use_trigger, false);
     await widget.mouse({ type: "pointerdown" }, [1040 + 482, 60]);
-    assert.equal(widget.rows[20].strength, 2);
-    await widget.mouse({ type: "pointermove" }, [1040 + 356, 60]);
-    assert.equal(widget.rows[20].strength, 0);
-    await widget.mouse({ type: "pointerup" }, [1040 + 356, 60]);
+    assert.equal(widget.rows[20].strength, 1.05);
+    await widget.mouse({ type: "pointerdown" }, [1040 + 394, 60]);
+    assert.equal(widget.rows[20].strength, 1);
     assert.equal(widget.rows[0].strength, 1);
     await widget.mouse({ type: "pointerdown" }, [520 + 499, 56]);
     assert.equal(widget.rows[10].name, "style-11.safetensors");
@@ -210,9 +218,27 @@ test("thumbnail hit regions follow columns and widget offsets", () => {
     });
     widget.draw(ctx, node, node.size[0], 100);
     assert.deepEqual(JSON.parse(JSON.stringify(widget._thumbRects[20])), {
-        index: 20, x: 1346, y: 38, width: 38, height: 36,
+        index: 20, x: 1372, y: 38, width: 38, height: 36,
     });
     assert.equal(widget._thumbRects[29].y, 38 + 9 * 82);
+});
+
+test("strength steps stay bounded and direct input accepts decimals without changing other rows", async () => {
+    const { widget, context } = setupStack(11);
+    widget.last_y = 100;
+    for (let i = 0; i < 25; i++) await widget.mouse({ type: "pointerdown" }, [520 + 470, 156]);
+    assert.equal(widget.rows[10].strength, 2);
+    for (let i = 0; i < 45; i++) await widget.mouse({ type: "pointerdown" }, [520 + 394, 156]);
+    assert.equal(widget.rows[10].strength, 0);
+    let commit;
+    context.app.canvas = { prompt(_label, _initial, callback) { commit = callback; } };
+    await widget.mouse({ type: "pointerdown" }, [520 + 432, 156]);
+    commit("0,73");
+    assert.equal(widget.rows[10].strength, 0.73);
+    for (const value of ["", null, "bad", "Infinity"]) commit(value);
+    assert.equal(widget.rows[10].strength, 0.73);
+    assert.equal(widget.rows[0].strength, 1);
+    assert.equal(JSON.parse(widget.serializeValue())[10].strength, 0.73);
 });
 
 test("missing files are detected by full model name, independently of thumbnails and toggles", async () => {

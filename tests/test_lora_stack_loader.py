@@ -132,6 +132,10 @@ class TriggerTests(unittest.TestCase):
         result = self.apply([{"name": self.path.name, "strength": 0.7}])
         self.assertEqual(result, ("model", "clip", "", "portrait"))
 
+    def test_notes_never_contribute_to_prompt(self):
+        result = self.apply([self.row(notes="private notes, recommended strength 0.8\nnot a trigger")])
+        self.assertEqual(result, ("model", "clip", "magic style", "magic style, portrait"))
+
     def test_pending_metadata_manual_override_and_explicit_empty(self):
         self.metadata({"trigger_words": "embedded"})
         self.assertEqual(self.apply([self.row(trigger=None)])[2], "embedded")

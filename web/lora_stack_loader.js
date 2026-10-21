@@ -10,7 +10,6 @@ const DEFAULT_ROWS_PER_COLUMN = 10;
 const STRENGTH_MIN = 0;
 const STRENGTH_MAX = 2;
 const STRENGTH_STEP = 0.05;
-const SLIDER_WIDTH = 126;
 const ENABLED_COLOR = "#35b86b";
 const thumbCache = new Map();
 let loraListPromise = null;
@@ -50,7 +49,7 @@ function editTrigger(row, onSave) {
     panel.style.cssText = "width:min(600px,88vw);max-height:85vh;overflow:auto;padding:20px;background:#242424;color:#eee;border:1px solid #777;border-radius:10px;display:flex;flex-direction:column;gap:12px";
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-modal", "true");
-    panel.setAttribute("aria-label", "Edit LoRA trigger");
+    panel.setAttribute("aria-label", "Edit LoRA trigger and notes");
     const title = document.createElement("strong");
     title.textContent = row.name;
     title.style.overflowWrap = "anywhere";
@@ -60,6 +59,20 @@ function editTrigger(row, onSave) {
     input.setAttribute("aria-label", "Trigger");
     input.rows = 4;
     input.style.cssText = "padding:10px;background:#171717;color:#eee;resize:vertical";
+    const triggerLabel = document.createElement("label");
+    triggerLabel.textContent = "Trigger";
+    triggerLabel.style.cssText = "display:flex;flex-direction:column;gap:6px";
+    triggerLabel.appendChild(input);
+    const notes = document.createElement("textarea");
+    notes.value = row.notes ?? "";
+    notes.placeholder = "Your notes, recommended strength, combinations, reminders…";
+    notes.setAttribute("aria-label", "Notes");
+    notes.rows = 4;
+    notes.style.cssText = input.style.cssText;
+    const notesLabel = document.createElement("label");
+    notesLabel.textContent = "Notes — saved in this workflow, never added to the prompt";
+    notesLabel.style.cssText = triggerLabel.style.cssText;
+    notesLabel.appendChild(notes);
     const status = document.createElement("div");
     status.textContent = "The text is saved in this workflow. The \"To prompt\" checkbox appends it to the text output.";
     const suggestions = document.createElement("div");
@@ -116,7 +129,7 @@ function editTrigger(row, onSave) {
     for (const [label, action] of [
         ["Read from file", () => readMetadata(true)],
         ["Copy", () => copyTrigger(input.value)],
-        ["Save", () => { onSave(input.value.trim()); close(); }],
+        ["Save", () => { onSave(input.value.trim(), notes.value); close(); }],
         ["Cancel", close],
     ]) {
         const button = document.createElement("button");
@@ -142,7 +155,7 @@ function editTrigger(row, onSave) {
             }
         }
     };
-    panel.append(title, input, status, suggestionStatus, suggestions, buttons);
+    panel.append(title, triggerLabel, status, suggestionStatus, suggestions, notesLabel, buttons);
     backdrop.appendChild(panel);
     document.body.appendChild(backdrop);
     input.focus();
@@ -239,10 +252,8 @@ function compareLoraNames(left, right) {
     return left.localeCompare(right, "pl", { sensitivity: "base", numeric: true });
 }
 
-function strengthFromSlider(x, sliderX) {
-    const ratio = Math.max(0, Math.min(1, (x - sliderX) / SLIDER_WIDTH));
-    const raw = STRENGTH_MIN + ratio * (STRENGTH_MAX - STRENGTH_MIN);
-    return Math.round(raw / STRENGTH_STEP) * STRENGTH_STEP;
+function clampStrength(value) {
+    return Math.max(STRENGTH_MIN, Math.min(STRENGTH_MAX, Math.round(value * 100) / 100));
 }
 
 function chooseLora(currentName = "", excludedNames = [], multiple = false) {
@@ -469,6 +480,7 @@ function safeRows(value) {
                 enabled: row.enabled !== false,
                 trigger: typeof row.trigger === "string" ? row.trigger : null,
                 use_trigger: row.use_trigger === true,
+                notes: typeof row.notes === "string" ? row.notes : "",
                 strength: Math.max(
                     STRENGTH_MIN,
                     Math.min(STRENGTH_MAX, Number(row.strength) || 0),
@@ -498,7 +510,6 @@ function makeStackWidget(node, initialValue) {
         name: "lora_stack",
         value: initialValue || "[]",
         rows: safeRows(initialValue),
-        _dragging: -1,
         _thumbRects: [],
 
         layout(width = node.size[0]) {
@@ -638,8 +649,8 @@ function makeStackWidget(node, initialValue) {
                 ctx.translate(columnX, 0);
                 const top = y + HEADER_HEIGHT + (index % layout.limit) * ROW_HEIGHT;
                 const middle = top + 26;
-                const thumbX = width - 214;
-                const sliderX = width - 164;
+                const thumbX = width - 188;
+                const strengthX = width - 138;
 
                 const missing = row.availability === "missing";
                 ctx.fillStyle = missing ? "#392727" : row.enabled ? "#303030" : "#252525";
@@ -665,7 +676,7 @@ function makeStackWidget(node, initialValue) {
                 ctx.fillStyle = missing ? "#ffaaaa" : row.enabled ? "#eee" : "#777";
                 ctx.font = "13px sans-serif";
                 ctx.textAlign = "left";
-                ctx.fillText(shorten(ctx, row.name, width - 292), 56, availabilityLabel ? middle - 7 : middle);
+                ctx.fillText(shorten(ctx, row.name, width - 266), 56, availabilityLabel ? middle - 7 : middle);
                 if (availabilityLabel) {
                     ctx.font = "11px sans-serif";
                     ctx.fillStyle = missing ? "#ffaaaa" : "#c9aa70";
@@ -687,22 +698,20 @@ function makeStackWidget(node, initialValue) {
                     ctx.fillText("none", thumbX + 19, middle);
                 }
 
-                ctx.strokeStyle = "#777";
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(sliderX, middle + 7);
-                ctx.lineTo(sliderX + SLIDER_WIDTH, middle + 7);
-                ctx.stroke();
-                const normalized = (row.strength - STRENGTH_MIN) / (STRENGTH_MAX - STRENGTH_MIN);
-                const knobX = sliderX + normalized * SLIDER_WIDTH;
-                ctx.fillStyle = "#ad9bdf";
-                ctx.beginPath();
-                ctx.arc(knobX, middle + 7, 6, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.textAlign = "center";
+                for (const [offset, label] of [[0, "−"], [76, "+"]]) {
+                    ctx.fillStyle = "#39334b";
+                    ctx.beginPath();
+                    ctx.roundRect(strengthX + offset, middle - 12, 24, 24, 4);
+                    ctx.fill();
+                    ctx.fillStyle = "#cbbcff";
+                    ctx.font = "bold 16px sans-serif";
+                    ctx.fillText(label, strengthX + offset + 12, middle);
+                }
                 ctx.fillStyle = row.enabled ? "#ddd" : "#777";
                 ctx.font = "11px monospace";
                 ctx.textAlign = "center";
-                ctx.fillText(row.strength.toFixed(2), sliderX + SLIDER_WIDTH / 2, middle - 8);
+                ctx.fillText(row.strength.toFixed(2), strengthX + 50, middle);
 
                 ctx.fillStyle = "#a55";
                 ctx.font = "bold 16px sans-serif";
@@ -731,7 +740,7 @@ function makeStackWidget(node, initialValue) {
                 ctx.fillStyle = row.trigger ? "#cbbcff" : "#666";
                 ctx.fillText(row._copied ? "OK!" : "Copy", width - 104, triggerY);
                 ctx.fillStyle = "#cbbcff";
-                ctx.fillText("Edit", width - 45, triggerY);
+                ctx.fillText(row.notes ? "Edit •" : "Edit", width - 45, triggerY);
                 ctx.restore();
             });
 
@@ -766,17 +775,10 @@ function makeStackWidget(node, initialValue) {
                     hidePreview();
                 }
 
-                if (this._dragging >= 0) {
-                    const sliderX = (Math.floor(this._dragging / layout.limit) + 1) * layout.columnWidth - 164;
-                    this.rows[this._dragging].strength = strengthFromSlider(x, sliderX);
-                    this.sync();
-                    return true;
-                }
                 return Boolean(hovered);
             }
 
             if (event.type === "pointerup") {
-                this._dragging = -1;
                 return false;
             }
             if (event.type !== "pointerdown") return false;
@@ -792,7 +794,6 @@ function makeStackWidget(node, initialValue) {
                     const limit = Number(value);
                     if (!Number.isSafeInteger(limit) || limit < 1) return;
                     node.properties.lora_rows_per_column = limit;
-                    this._dragging = -1;
                     hidePreview();
                     this.sync();
                 }, event);
@@ -833,8 +834,9 @@ function makeStackWidget(node, initialValue) {
                         node.setDirtyCanvas(true, true);
                         setTimeout(() => { row._copied = false; node.setDirtyCanvas(true, true); }, 1500);
                     } else if (x >= 108 && x < width - 8) {
-                        editTrigger(row, trigger => {
+                        editTrigger(row, (trigger, notes) => {
                             row.trigger = trigger;
+                            row.notes = notes;
                             row.triggerError = false;
                             this.sync();
                         });
@@ -852,22 +854,32 @@ function makeStackWidget(node, initialValue) {
                     this.sync();
                     return true;
                 }
-                if (x >= width - 170 && x <= width - 32) {
-                    this._dragging = rowIndex;
-                    row.strength = strengthFromSlider(x, width - 164);
-                    this.sync();
+                if (x >= width - 138 && x <= width - 38 && rowY >= 14 && rowY <= 38) {
+                    if (x < width - 114 || x > width - 62) {
+                        row.strength = clampStrength(row.strength + (x < width - 114 ? -STRENGTH_STEP : STRENGTH_STEP));
+                        this.sync();
+                    } else {
+                        app.canvas.prompt(`LoRA strength (${STRENGTH_MIN}–${STRENGTH_MAX})`, row.strength.toFixed(2), value => {
+                            if (value == null || String(value).trim() === "") return;
+                            const strength = Number(String(value).trim().replace(",", "."));
+                            if (!Number.isFinite(strength)) return;
+                            row.strength = clampStrength(strength);
+                            this.sync();
+                        }, event);
+                    }
                     return true;
                 }
-                if (x >= 50 && x < width - 220) {
+                if (x >= 50 && x < width - 194) {
                     const selected = await chooseLora(
                         row.name,
                         this.rows.map(item => item.name),
                     );
-                    if (selected && !this.rows.some((item, index) =>
+                    if (selected && selected !== row.name && !this.rows.some((item, index) =>
                         index !== rowIndex && item.name === selected
                     )) {
                         row.name = selected;
                         row.trigger = null;
+                        row.notes = "";
                         row.triggerError = false;
                         row.use_trigger = false;
                         row.suggestionCount = 0;
@@ -891,7 +903,7 @@ function makeStackWidget(node, initialValue) {
                     const existingNames = new Set(this.rows.map(item => item.name));
                     for (const name of selected) {
                         if (existingNames.has(name)) continue;
-                        const row = { name, enabled: true, strength: 1.0, thumbnail: null, trigger: null, use_trigger: false };
+                        const row = { name, enabled: true, strength: 1.0, thumbnail: null, trigger: null, use_trigger: false, notes: "" };
                         this.rows.push(row);
                         existingNames.add(name);
                         this.prepareThumbnail(row);
@@ -905,8 +917,8 @@ function makeStackWidget(node, initialValue) {
         },
 
         serializeValue() {
-            return JSON.stringify(this.rows.map(({ name, enabled, strength, trigger, use_trigger }) => ({
-                name, enabled, strength, trigger, use_trigger,
+            return JSON.stringify(this.rows.map(({ name, enabled, strength, trigger, use_trigger, notes }) => ({
+                name, enabled, strength, trigger, use_trigger, ...(notes ? { notes } : {}),
             })));
         },
     };

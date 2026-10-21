@@ -179,14 +179,131 @@ async function listImages(directory) {
 
 // ─── directory widget (w pełni własny, stała wysokość) ────────────────────────
 
+function showDirectoryBrowser(node, onSelect) {
+    closeHistoryDropdown();
+    node._szandorCloseBrowser?.();
+    const backdrop = document.createElement("div");
+    backdrop.style.cssText = "position:fixed;inset:0;z-index:100001;background:#0009;display:grid;place-items:center";
+    const panel = document.createElement("div");
+    panel.style.cssText = "width:min(720px,90vw);max-height:85vh;padding:18px;background:#242424;color:#eee;border:1px solid #777;border-radius:10px;display:flex;flex-direction:column;gap:12px;font:13px sans-serif";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-modal", "true");
+    panel.setAttribute("aria-label", "Browse folders and images");
+    const title = document.createElement("strong");
+    title.textContent = "Browse folders and images";
+    const navigation = document.createElement("div");
+    navigation.style.cssText = "display:flex;gap:8px";
+    const button = (label, action) => {
+        const element = document.createElement("button");
+        element.type = "button";
+        element.textContent = label;
+        element.onclick = action;
+        element.style.cssText = "padding:8px 12px;cursor:pointer;color:#eee;background:#39334b;border:1px solid #75689b;border-radius:5px";
+        return element;
+    };
+    const path = document.createElement("input");
+    path.value = node._szandorDirWidget?.value || "";
+    path.placeholder = "Folder path on the ComfyUI server";
+    path.setAttribute("aria-label", "Folder path");
+    path.style.cssText = "flex:1;min-width:0;padding:8px;background:#171717;color:#eee;border:1px solid #666";
+    const status = document.createElement("div");
+    status.setAttribute("role", "status");
+    const list = document.createElement("div");
+    list.style.cssText = "overflow:auto;min-height:140px;max-height:50vh;border:1px solid #444;border-radius:5px";
+    const footer = document.createElement("div");
+    footer.style.cssText = "display:flex;gap:8px;justify-content:flex-end";
+    let current = null;
+    let version = 0;
+    let closed = false;
+    const close = () => {
+        closed = true;
+        version++;
+        backdrop.remove();
+        if (node._szandorCloseBrowser === close) node._szandorCloseBrowser = null;
+    };
+    node._szandorCloseBrowser = close;
+    const select = filename => {
+        if (!current?.directory) return;
+        onSelect(current.directory, filename);
+        close();
+    };
+    const up = button("↑ Up", () => navigate(current.parent));
+    up.title = "Open the parent folder";
+    const roots = button("Roots", () => navigate(""));
+    roots.title = "Show server drives or filesystem root";
+    const open = button("Open", () => navigate(path.value.trim()));
+    const useFolder = button("Use this folder", () => select(undefined));
+    const navigate = async directory => {
+        const request = ++version;
+        path.value = directory;
+        current = null;
+        up.disabled = true;
+        useFolder.disabled = true;
+        list.replaceChildren();
+        status.textContent = "Loading…";
+        try {
+            const response = await api.fetchApi(`/szandor/browse-directory?directory=${encodeURIComponent(directory)}`);
+            const data = await response.json();
+            if (request !== version || closed) return;
+            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            current = data;
+            path.value = data.directory;
+            up.disabled = data.parent == null;
+            useFolder.disabled = !data.directory;
+            status.textContent = data.directory
+                ? `${data.directories.length} folders · ${data.images.length} images — click a folder to open it or an image to select it.`
+                : "Choose a drive or root folder on the ComfyUI server.";
+            const addEntry = (label, action) => {
+                const entry = button(label, action);
+                entry.style.cssText = "display:block;width:100%;text-align:left;padding:9px 12px;color:#eee;background:#292929;border:0;border-bottom:1px solid #444;cursor:pointer;overflow-wrap:anywhere";
+                list.appendChild(entry);
+            };
+            for (const folder of data.directories) addEntry(`📁 ${folder.name}`, () => navigate(folder.path));
+            for (const filename of data.images) addEntry(`▧ ${filename}`, () => select(filename));
+            if (!data.directories.length && !data.images.length) {
+                const empty = document.createElement("div");
+                empty.textContent = "No subfolders or supported images in this folder.";
+                empty.style.cssText = "padding:20px;color:#aaa";
+                list.appendChild(empty);
+            }
+        } catch (error) {
+            if (request !== version || closed) return;
+            status.textContent = error.message || "Could not read this folder.";
+        }
+    };
+    path.onkeydown = event => {
+        if (event.key === "Enter") { event.preventDefault(); navigate(path.value.trim()); }
+    };
+    panel.onkeydown = event => {
+        event.stopPropagation();
+        if (event.key === "Escape") close();
+        if (event.key === "Tab") {
+            const controls = [...panel.querySelectorAll("input,button")].filter(control => !control.disabled);
+            const index = controls.indexOf(document.activeElement);
+            if (event.shiftKey && index === 0) { event.preventDefault(); controls.at(-1).focus(); }
+            else if (!event.shiftKey && index === controls.length - 1) { event.preventDefault(); controls[0].focus(); }
+        }
+    };
+    backdrop.onpointerdown = event => { if (event.target === backdrop) close(); };
+    navigation.append(up, roots, path, open);
+    footer.append(useFolder, button("Cancel", close));
+    panel.append(title, navigation, status, list, footer);
+    backdrop.appendChild(panel);
+    document.body.appendChild(backdrop);
+    navigate(path.value);
+    path.focus();
+}
+
 function makeDirectoryWidget(node, initialValue, onChange) {
     const HIST_BTN_W = 22;
+    const BROWSE_BTN_W = 54;
 
     const widget = {
         type: "SZANDOR_DIR_ROW",
         name: "directory",
         value: initialValue || "",
         _historyRect: null,
+        _browseRect: null,
 
         computeSize(width) {
             return [width, DIR_ROW_H];
@@ -224,23 +341,33 @@ function makeDirectoryWidget(node, initialValue, onChange) {
             ctx.textAlign = "center";
             ctx.fillText("🕘", histBtnX + HIST_BTN_W / 2, top + height / 2);
 
+            const browseX = histBtnX - BROWSE_BTN_W - 4;
+            this._browseRect = { x: browseX, y: histBtnYLocal, w: BROWSE_BTN_W, h: histBtnH };
+            ctx.fillStyle = "#39334b";
+            ctx.beginPath();
+            ctx.roundRect(browseX, top + histBtnYLocal, BROWSE_BTN_W, histBtnH, 4);
+            ctx.fill();
+            ctx.fillStyle = "#ddd";
+            ctx.fillText("Browse", browseX + BROWSE_BTN_W / 2, top + height / 2);
+
             ctx.fillStyle = this.value ? "#ddd" : "#666";
             ctx.font = "11px monospace";
             const label = this.value || "(click to choose a folder)";
-            const maxTextWidth = width - PAD * 2 - 66 - HIST_BTN_W;
+            const maxTextWidth = width - PAD * 2 - 66 - HIST_BTN_W - BROWSE_BTN_W - 4;
             let shown = label;
             while (shown.length > 1 && ctx.measureText(shown).width > maxTextWidth) {
                 shown = shown.slice(1);
             }
             if (shown !== label) shown = "…" + shown;
             ctx.textAlign = "right";
-            ctx.fillText(shown, histBtnX - 8, top + height / 2);
+            ctx.fillText(shown, browseX - 8, top + height / 2);
         },
 
-        commit(value) {
+        commit(value, filename) {
+            const previous = this.value;
             this.value = (value ?? "").trim();
             if (this.value) pushHistory(this.value);
-            onChange(this.value);
+            onChange(this.value, filename ?? (previous === this.value ? undefined : ""));
         },
 
         mouse(event, pos, node) {
@@ -248,6 +375,11 @@ function makeDirectoryWidget(node, initialValue, onChange) {
             const x = pos[0];
             const y = pos[1] - (this.last_y ?? 0);
             const r = this._historyRect;
+            const browse = this._browseRect;
+            if (browse && x >= browse.x && x <= browse.x + browse.w && y >= browse.y && y <= browse.y + browse.h) {
+                showDirectoryBrowser(node, (directory, filename) => this.commit(directory, filename));
+                return true;
+            }
 
             if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
                 const graphX = node.pos[0] + r.x;
@@ -294,11 +426,18 @@ function makePreviewWidget(node) {
         },
 
         async refresh(preferredName) {
+            const request = this._refreshVersion = (this._refreshVersion ?? 0) + 1;
+            this._selectionVersion = (this._selectionVersion ?? 0) + 1;
             const directory = this.currentDirectory();
+            const wanted = preferredName !== undefined ? preferredName : this.value;
+            this.images = [];
+            this.index = -1;
+            this.value = wanted || "";
+            this.thumb = null;
             if (!directory) {
-                this.images = [];
-                this.index = -1;
-                this.thumb = null;
+                this.value = "";
+                this.signature = "";
+                this.loading = false;
                 this.stale = false;
                 node.setDirtyCanvas(true, true);
                 return;
@@ -308,12 +447,12 @@ function makePreviewWidget(node) {
             node.setDirtyCanvas(true, true);
 
             const { images, signature } = await listImages(directory);
+            if (request !== this._refreshVersion || directory !== this.currentDirectory()) return;
             this.images = images || [];
             this.signature = signature || "";
             this.stale = false;
             this.loading = false;
 
-            const wanted = preferredName !== undefined ? preferredName : this.value;
             let idx = this.images.indexOf(wanted);
             if (idx < 0) idx = this.images.length ? 0 : -1;
             await this.setIndex(idx, true);
@@ -321,12 +460,16 @@ function makePreviewWidget(node) {
 
         async setIndex(idx, force = false) {
             if (!force && idx === this.index) return;
+            const request = this._selectionVersion = (this._selectionVersion ?? 0) + 1;
             this.index = idx;
             this.value = idx >= 0 ? this.images[idx] : "";
             this.thumb = null;
             node.setDirtyCanvas(true, true);
             if (this.value) {
-                this.thumb = await fetchThumb(this.currentDirectory(), this.value);
+                const directory = this.currentDirectory();
+                const thumb = await fetchThumb(directory, this.value);
+                if (request !== this._selectionVersion || directory !== this.currentDirectory()) return;
+                this.thumb = thumb;
             }
             node.setDirtyCanvas(true, true);
         },
@@ -483,7 +626,7 @@ app.registerExtension({
             if (fnIdx >= 0) node.widgets.splice(fnIdx, 1);
 
             const preview = makePreviewWidget(node);
-            const dirWidget = makeDirectoryWidget(node, initialDir, () => preview.refresh(""));
+            const dirWidget = makeDirectoryWidget(node, initialDir, (_directory, filename) => preview.refresh(filename));
             node.widgets.push(dirWidget, preview);
             node._szandorPreview = preview;
             node._szandorDirWidget = dirWidget;
@@ -499,7 +642,7 @@ app.registerExtension({
                 const directory = preview.currentDirectory();
                 if (!directory) return;
                 const { signature } = await listImages(directory);
-                if (signature && preview.signature && signature !== preview.signature) {
+                if (directory === preview.currentDirectory() && signature && preview.signature && signature !== preview.signature) {
                     preview.stale = true;
                     node.setDirtyCanvas(true, true);
                 }
@@ -528,6 +671,7 @@ app.registerExtension({
         const origRemoved = nodeType.prototype.onRemoved;
         nodeType.prototype.onRemoved = function () {
             if (this._szandorPollTimer) clearInterval(this._szandorPollTimer);
+            this._szandorCloseBrowser?.();
             origRemoved?.apply(this, arguments);
         };
     },

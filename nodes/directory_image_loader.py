@@ -53,6 +53,45 @@ def _resolve_in_directory(directory, filename):
     return candidate
 
 
+def _browse_directory(directory):
+    """List one level of server folders and images without changing the selection."""
+    if not directory:
+        roots = ([f"{letter}:\\" for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                  if os.path.isdir(f"{letter}:\\")] if os.name == "nt" else ["/"])
+        return {"directory": "", "parent": None,
+                "directories": [{"name": root, "path": root} for root in roots], "images": []}
+
+    directory = os.path.abspath(directory)
+    folders, images = [], []
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            try:
+                if entry.is_dir():
+                    folders.append({"name": entry.name, "path": entry.path})
+                elif entry.name.lower().endswith(IMAGE_EXTENSIONS) and entry.is_file():
+                    images.append(entry.name)
+            except OSError:
+                continue  # An entry may disappear during a scan.
+    folders.sort(key=lambda item: _natural_key(item["name"]))
+    images.sort(key=_natural_key)
+    parent = os.path.dirname(directory)
+    return {"directory": directory, "parent": parent if parent != directory else "",
+            "directories": folders, "images": images}
+
+
+@PromptServer.instance.routes.get("/szandor/browse-directory")
+async def szandor_browse_directory(request):
+    directory = (request.query.get("directory") or "").strip()
+    try:
+        return web.json_response(_browse_directory(directory))
+    except PermissionError:
+        return web.json_response({"error": "Permission denied for this folder."}, status=403)
+    except (FileNotFoundError, NotADirectoryError):
+        return web.json_response({"error": "Folder does not exist."}, status=404)
+    except (OSError, ValueError):
+        return web.json_response({"error": "Could not open this folder."}, status=400)
+
+
 @PromptServer.instance.routes.get("/szandor/dir-images")
 async def szandor_list_dir_images(request):
     directory = (request.query.get("directory") or "").strip()
