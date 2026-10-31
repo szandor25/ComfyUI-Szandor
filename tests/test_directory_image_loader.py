@@ -48,6 +48,17 @@ class DirectoryBrowserTests(unittest.TestCase):
         self.assertEqual(child["images"], ["nested.png"])
         self.assertEqual(self.node._list_images(str(self.root)), result["images"])
 
+    def test_list_images_sort_orders(self):
+        for name, mtime in [("b10.png", 300), ("b2.png", 100), ("a.png", 200), ("c.png", 200)]:
+            (self.root / name).touch()
+            os.utime(self.root / name, (mtime, mtime))
+        listed = lambda sort: self.node._list_images(str(self.root), sort)
+        self.assertEqual(listed("name A→Z"), ["a.png", "b2.png", "b10.png", "c.png"])
+        self.assertEqual(listed("name Z→A"), ["c.png", "b10.png", "b2.png", "a.png"])
+        self.assertEqual(listed("date modified: newest first"), ["b10.png", "a.png", "c.png", "b2.png"])
+        self.assertEqual(listed("date modified: oldest first"), ["b2.png", "a.png", "c.png", "b10.png"])
+        self.assertEqual(self.node._list_images(str(self.root)), listed("name A→Z"))
+
     def test_empty_directory_and_roots(self):
         result = self.node._browse_directory(str(self.root))
         self.assertEqual((result["directories"], result["images"]), ([], []))

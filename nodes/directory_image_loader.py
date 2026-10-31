@@ -9,24 +9,33 @@ from aiohttp import web
 from server import PromptServer
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff")
+SORT_OPTIONS = ["name A→Z", "name Z→A", "date modified: newest first", "date modified: oldest first"]
+DEFAULT_SORT = SORT_OPTIONS[0]
 
 
 def _natural_key(name):
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", name)]
 
 
-def _list_images(directory):
+def _list_images(directory, sort_by=DEFAULT_SORT):
     if not directory or not os.path.isdir(directory):
         return []
+    entries = []
     try:
-        names = [
-            f for f in os.listdir(directory)
-            if f.lower().endswith(IMAGE_EXTENSIONS) and os.path.isfile(os.path.join(directory, f))
-        ]
+        with os.scandir(directory) as it:
+            for entry in it:
+                try:
+                    if entry.name.lower().endswith(IMAGE_EXTENSIONS) and entry.is_file():
+                        entries.append((entry.name, entry.stat().st_mtime))
+                except OSError:
+                    continue  # An entry may disappear during a scan.
     except OSError:
         return []
-    names.sort(key=_natural_key)
-    return names
+    # Sort by name first so equal dates keep a stable, natural name order.
+    entries.sort(key=lambda item: _natural_key(item[0]), reverse=sort_by == "name Z→A")
+    if sort_by.startswith("date modified"):
+        entries.sort(key=lambda item: item[1], reverse=sort_by == "date modified: newest first")
+    return [name for name, _ in entries]
 
 
 def _dir_signature(directory, names):
@@ -95,7 +104,8 @@ async def szandor_browse_directory(request):
 @PromptServer.instance.routes.get("/szandor/dir-images")
 async def szandor_list_dir_images(request):
     directory = (request.query.get("directory") or "").strip()
-    names = _list_images(directory)
+    sort_by = request.query.get("sort") or DEFAULT_SORT
+    names = _list_images(directory, sort_by if sort_by in SORT_OPTIONS else DEFAULT_SORT)
     return web.json_response({
         "images": names,
         "signature": _dir_signature(directory, names) if directory else "",
@@ -122,6 +132,10 @@ class SzandorDirectoryImageLoader:
                 "directory": ("STRING", {"default": ""}),
                 "filename": ("STRING", {"default": ""}),
             },
+            "optional": {
+                "sort_by": (SORT_OPTIONS, {"default": DEFAULT_SORT,
+                                           "tooltip": "Order of images when stepping with the arrows."}),
+            },
         }
 
     RETURN_TYPES = ("IMAGE", "MASK")
@@ -130,7 +144,7 @@ class SzandorDirectoryImageLoader:
     CATEGORY = "Szandor/Image"
     DESCRIPTION = "Loads a single image chosen from any folder on disk, with thumbnails and recent folders."
 
-    def load(self, directory, filename):
+    def load(self, directory, filename, sort_by=DEFAULT_SORT):
         path = _resolve_in_directory(directory, filename)
         if path is None:
             raise FileNotFoundError(f"Image '{filename}' not found in folder '{directory}'.")
@@ -156,7 +170,7 @@ class SzandorDirectoryImageLoader:
         return (image_tensor, mask_tensor)
 
     @classmethod
-    def IS_CHANGED(cls, directory, filename):
+    def IS_CHANGED(cls, directory, filename, sort_by=DEFAULT_SORT):
         path = _resolve_in_directory(directory, filename)
         if path is None:
             return ""

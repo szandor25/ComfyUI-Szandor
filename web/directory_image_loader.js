@@ -166,10 +166,11 @@ function fetchThumb(directory, name) {
     });
 }
 
-async function listImages(directory) {
+async function listImages(directory, sort) {
     if (!directory) return { images: [], signature: "" };
     try {
-        const res = await api.fetchApi(`/szandor/dir-images?directory=${encodeURIComponent(directory)}`);
+        const query = `directory=${encodeURIComponent(directory)}&sort=${encodeURIComponent(sort || "")}`;
+        const res = await api.fetchApi(`/szandor/dir-images?${query}`);
         if (!res.ok) return { images: [], signature: "" };
         return await res.json();
     } catch {
@@ -425,6 +426,10 @@ function makePreviewWidget(node) {
             return (node._szandorDirWidget?.value || "").trim();
         },
 
+        currentSort() {
+            return node._szandorSortWidget?.value || "";
+        },
+
         async refresh(preferredName) {
             const request = this._refreshVersion = (this._refreshVersion ?? 0) + 1;
             this._selectionVersion = (this._selectionVersion ?? 0) + 1;
@@ -446,7 +451,7 @@ function makePreviewWidget(node) {
             this.loading = true;
             node.setDirtyCanvas(true, true);
 
-            const { images, signature } = await listImages(directory);
+            const { images, signature } = await listImages(directory, this.currentSort());
             if (request !== this._refreshVersion || directory !== this.currentDirectory()) return;
             this.images = images || [];
             this.signature = signature || "";
@@ -625,11 +630,26 @@ app.registerExtension({
             const fnIdx = node.widgets?.findIndex(w => w.name === "filename") ?? -1;
             if (fnIdx >= 0) node.widgets.splice(fnIdx, 1);
 
+            // Combo sortowania przenosimy na koniec, bo wartości widgetów są odtwarzane
+            // pozycyjnie — stare workflowy ([directory, filename]) dostaną wtedy domyślne sortowanie.
+            const sortIdx = node.widgets?.findIndex(w => w.name === "sort_by") ?? -1;
+            const sortWidget = sortIdx >= 0 ? node.widgets.splice(sortIdx, 1)[0] : null;
+
             const preview = makePreviewWidget(node);
             const dirWidget = makeDirectoryWidget(node, initialDir, (_directory, filename) => preview.refresh(filename));
             node.widgets.push(dirWidget, preview);
             node._szandorPreview = preview;
             node._szandorDirWidget = dirWidget;
+            if (sortWidget) {
+                node.widgets.push(sortWidget);
+                node._szandorSortWidget = sortWidget;
+                const origCallback = sortWidget.callback;
+                sortWidget.callback = function () {
+                    const result = origCallback?.apply(this, arguments);
+                    preview.refresh(preview.value);
+                    return result;
+                };
+            }
 
             const requiredSize = node.computeSize();
             node.setSize([
@@ -641,8 +661,9 @@ app.registerExtension({
                 if (!preview || preview.loading) return;
                 const directory = preview.currentDirectory();
                 if (!directory) return;
-                const { signature } = await listImages(directory);
-                if (directory === preview.currentDirectory() && signature && preview.signature && signature !== preview.signature) {
+                const sort = preview.currentSort();
+                const { signature } = await listImages(directory, sort);
+                if (directory === preview.currentDirectory() && sort === preview.currentSort() && signature && preview.signature && signature !== preview.signature) {
                     preview.stale = true;
                     node.setDirtyCanvas(true, true);
                 }
