@@ -41,6 +41,21 @@ const history = { serial: 1, runs: [{
           peak_allocated: 45 * GB, peak_reserved: 47 * GB, peak_device: 60 * GB, peak_rss: 33 * GB },
     ],
 }] };
+const system = {
+    time: 1000,
+    cpu: { name: "Test CPU 16-Core", cores: 4, threads: 4, load: 37.5, loads: [90, 30, 20, 10], clocks: [5600, 5100, 4300, 3000],
+        clock: 4500, base_clock: 4300, max_clock: null, process: 12.4, temp: 88.2, temp_label: "CPU (Tctl/Tdie)", temp_max: 91,
+        power: 142.6, power_label: "CPU Package Power" },
+    sensors: { source: "HWiNFO", hint: null, groups: [
+        { name: "CPU [#0]: Test CPU", kind: "cpu", readings: [
+            { type: "temperature", label: "CPU (Tctl/Tdie)", value: 88.2, unit: "°C", min: 35, max: 91 }] },
+        { name: "Test Board (ITE IT8696E)", kind: "other", readings: [
+            { type: "temperature", label: "System", value: 34, unit: "°C", min: 30, max: 36 },
+            { type: "fan", label: "CPU", value: 1180, unit: "RPM", min: 600, max: 1900 },
+            { type: "fan", label: "System 3", value: 0, unit: "RPM", min: 0, max: 0 }] },
+    ] },
+};
+const systemRequests = [];
 const actions = [];
 let actionReply = { status: 200, body: { message: "Unloaded from VRAM: WanT5Model", freed: 9.8 * GB } };
 let statsRequests = 0;
@@ -87,6 +102,11 @@ const server = createServer(async (req, res) => {
         res.setHeader("Content-Type", "application/json");
         if (url.pathname === "/szandor/memory/stats") { statsRequests++; res.end(JSON.stringify(stats)); return; }
         if (url.pathname === "/szandor/memory/history") { res.end(JSON.stringify(history)); return; }
+        if (url.pathname === "/szandor/memory/system") {
+            systemRequests.push(url.searchParams.get("detail"));
+            system.time += 1;
+            res.end(JSON.stringify(system)); return;
+        }
         if (url.pathname === "/szandor/memory/action") {
             let body = "";
             for await (const chunk of req) body += chunk;
@@ -161,7 +181,8 @@ try {
     const legends = await evaluate("[...monitor.element.querySelectorAll('.mem-page:not([hidden]) .mem-legend')].map(e => e.textContent)");
     assert.match(legends[0], /^VRAM 61\.0 GB \/ 96\.0 GB · allocated 52\.0 GB · cache 6\.0 GB · other 3\.0 GB$/);
     assert.match(legends[1], /RAM 67\.0 GB \/ 128\.0 GB · ComfyUI 41\.0 GB · swap 2\.0 GB · pinned 3\.0 GB/);
-    assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-cell b')].map(e => e.textContent)"), ["52.0 GB", "58.0 GB", "73.0 GB", "35.0 GB"]);
+    assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-page:not([hidden]) .mem-cell b')].map(e => e.textContent)"), ["52.0 GB", "58.0 GB", "73.0 GB", "35.0 GB"]);
+    assert.equal(systemRequests.length, 0, "the System tab is not polled while hidden");
     assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-speed-item')].map(e => e.textContent)"), [
         "Core2512 / 3090 MHz", "Memory13365 / 14001 MHz · 6% busy", "Power556 / 600 W",
         "PCIe5.0 x8 (max 5.0 x16) ↓176 MB/s ↑57 MB/s", "StateP1", "Fan46%", "Slowed bypower limit"]);
@@ -240,6 +261,42 @@ try {
     assert.equal(lines[2].split(";").slice(0, 7).join(";"), '2;"KSampler #3";"KSampler";11,000;45,000;27,000;16,000');
     assert.equal(lines[2].split(";").at(-1), "36,000");
 
+    // System: CPU tiles, per-thread bars, sensor table, detail switch; polled only while open.
+    await evaluate("tab(3)");
+    await waitFor("q('.mem-page:not([hidden]) .mem-strong')?.textContent === 'Test CPU 16-Core'", "cpu name");
+    assert.equal(await evaluate("q('.mem-page:not([hidden]) .mem-strong').nextSibling.textContent"), "4 cores · 4 threads · ComfyUI 12%");
+    assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-page:not([hidden]) .mem-cell b')].map(e => e.textContent)"),
+        ["38%", "4.5 / 5.60 GHz", "88.2 °C", "143 W"]);
+    assert.match(await evaluate("[...monitor.element.querySelectorAll('.mem-page:not([hidden]) .mem-cell')][1].title"), /Fastest thread: 5\.60 GHz \(CPU 0\)/);
+    assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-page:not([hidden]) .mem-cell.mem-warn').length"), 1, "hot CPU is highlighted");
+    assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-cores span')].map(s => s.title)"),
+        ["CPU 0: 90% · 5.60 GHz", "CPU 1: 30% · 5.10 GHz", "CPU 2: 20% · 4.30 GHz", "CPU 3: 10% · 3.00 GHz"]);
+    assert.equal(await evaluate("q('.mem-page:not([hidden]) .mem-policy').textContent"), "HWiNFO");
+    assert.deepEqual(await evaluate("[...monitor.element.querySelectorAll('.mem-sensor-table tbody tr')].map(r => [...r.cells].map(c => c.textContent).join('|'))"), [
+        "CPU [#0]: Test CPU", "CPU (Tctl/Tdie)|88.2 °C|35.0 °C|91.0 °C",
+        "Test Board (ITE IT8696E)", "System|34.0 °C|30.0 °C|36.0 °C", "CPU|1180 RPM|600 RPM|1900 RPM", "System 3|0 RPM|0 RPM|0 RPM"]);
+    assert.equal(await evaluate("monitor.element.querySelectorAll('.mem-sensor-table tr.mem-idle').length"), 1, "a stopped fan is dimmed");
+    assert.match(await evaluate("q('.mem-page:not([hidden]) .mem-line .mem-dim:last-child').textContent"), /2 temperatures · 1 \/ 2 fans spinning/);
+    assert.equal(await evaluate("q('.mem-hint').hidden"), true);
+    assert.equal(systemRequests.at(-1), "basic");
+    await evaluate("const d = q('.mem-detail'); d.value = 'all'; d.dispatchEvent(new Event('change'))");
+    for (let i = 0; i < 100 && systemRequests.at(-1) !== "all"; i++) await new Promise(r => setTimeout(r, 50));
+    assert.equal(systemRequests.at(-1), "all");
+    assert.equal(await evaluate("monitor.properties.szandorSystemDetail"), "all");
+    await waitFor("monitor.element.querySelectorAll('.mem-cores span').length === 4", "bars stay");
+    await screenshot("system");
+    // No sensor source: the hint shows and the table hides.
+    system.sensors = { source: null, hint: "Run HWiNFO or LibreHardwareMonitor.", groups: [] };
+    Object.assign(system.cpu, { temp: null, power: null });
+    await waitFor("!q('.mem-hint').hidden", "sensor hint");
+    assert.equal(await evaluate("q('.mem-hint').textContent"), "Run HWiNFO or LibreHardwareMonitor.");
+    assert.equal(await evaluate("q('.mem-sensor-table').closest('.mem-scroll').hidden"), true);
+    assert.equal(await evaluate("q('.mem-page:not([hidden]) .mem-policy').textContent"), "no sensors");
+    await evaluate("tab(0)");
+    const systemCount = systemRequests.length;
+    await new Promise(r => setTimeout(r, 1200));
+    assert.ok(systemRequests.length <= systemCount + 1, "System polling stops when another tab is open");
+
     // Cleanup node shows its report; removing the monitor stops polling.
     await evaluate("cleanup.onExecuted({ szandor_memory: ['Unloaded: WanT5Model'] })");
     assert.equal(await evaluate("cleanup.element.textContent"), "Unloaded: WanT5Model");
@@ -249,7 +306,7 @@ try {
     assert.ok(statsRequests <= count + 1, "polling stops after removal");
 
     assert.deepEqual(errors, []);
-    console.log("PASS: live GPU/RAM/policy, models sort/partial load/unload per model and kind, busy state + refusal + confirm, run table/top peak/metric switch/hover/CSV, cleanup report, polling stops on removal.");
+    console.log("PASS: live GPU/RAM/policy, models sort/partial load/unload per model and kind, busy state + refusal + confirm, run table/top peak/metric switch/hover/CSV, system CPU/threads/sensors/detail/hint, cleanup report, polling stops on removal.");
 } finally {
     chrome.kill();
     await new Promise(resolve => chrome.exitCode !== null ? resolve() : chrome.once("exit", resolve));

@@ -34,6 +34,7 @@ from .nodes.folder_media_loader import NODE_CLASS_MAPPINGS as FOLDER_MEDIA_NODE_
 from .nodes.folder_media_loader import NODE_DISPLAY_NAME_MAPPINGS as FOLDER_MEDIA_NODE_DISPLAY_NAME_MAPPINGS
 from .nodes.memory_monitor import NODE_CLASS_MAPPINGS as MEMORY_NODE_CLASS_MAPPINGS
 from .nodes.memory_monitor import NODE_DISPLAY_NAME_MAPPINGS as MEMORY_NODE_DISPLAY_NAME_MAPPINGS
+from .nodes import system_sensors  # Register the CPU / sensor route of the Memory Monitor System tab.
 from .nodes.switch_x5 import NODE_CLASS_MAPPINGS as SWITCH_X5_NODE_CLASS_MAPPINGS
 from .nodes.switch_x5 import NODE_DISPLAY_NAME_MAPPINGS as SWITCH_X5_NODE_DISPLAY_NAME_MAPPINGS
 from .nodes import h3_templates  # Register the local template library routes.

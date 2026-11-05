@@ -188,6 +188,28 @@ export function speedItems(speed) {
     return items;
 }
 
+// ─── zakładka System ──────────────────────────────────────────────────────────
+
+const SYSTEM_COLORS = { load: "#8bc9ff", clock: "#ffb35c", temp: "#ff7b7b" };
+const HOT_CPU = 85;
+
+/** One sensor value with its unit, e.g. "45.3 °C", "1180 RPM", "1.254 V". */
+export function formatSensor(type, value, unit = "") {
+    if (!isNum(value)) return "—";
+    switch (type) {
+        case "temperature": return `${value.toFixed(1)} °C`;
+        case "fan": return `${Math.round(value)} RPM`;
+        case "power": return `${value < 10 ? value.toFixed(1) : Math.round(value)} W`;
+        case "voltage": return `${value.toFixed(3)} V`;
+        case "clock": return `${Math.round(value)} MHz`;
+        case "load": case "control": return `${Math.round(value)}%`;
+        case "current": return `${value.toFixed(2)} A`;
+        default: return `${Math.round(value * 100) / 100}${unit ? ` ${unit}` : ""}`;
+    }
+}
+
+export const formatGHz = mhz => (isNum(mhz) ? `${(mhz / 1000).toFixed(2)} GHz` : "—");
+
 // ─── panel monitora ───────────────────────────────────────────────────────────
 
 function createMonitor(node) {
@@ -199,9 +221,10 @@ function createMonitor(node) {
         live: button("Live", "VRAM, RAM and the current node"),
         models: button("Models", "Models loaded by ComfyUI"),
         runs: button("Runs", "Memory of every node in recent jobs"),
+        system: button("System", "CPU load and clocks, temperatures, fans and power"),
     };
     const stateChip = el("span", "mem-chip", "…");
-    tabsRow.append(tabs.live, tabs.models, tabs.runs, el("span", "mem-spacer"), stateChip);
+    tabsRow.append(tabs.live, tabs.models, tabs.runs, tabs.system, el("span", "mem-spacer"), stateChip);
 
     // Na żywo
     const live = el("div", "mem-page");
@@ -286,8 +309,48 @@ function createMonitor(node) {
     runsScroll.append(runsTable);
     runs.append(runsBar, runSummary, runCanvas, runLegend, runHover, runsScroll);
 
+    // System
+    const system = el("div", "mem-page");
+    const cpuLine = el("div", "mem-line");
+    const cpuName = el("span", "mem-strong", "—");
+    const cpuExtra = el("span", "mem-dim");
+    const sourceChip = el("span", "mem-chip mem-policy");
+    cpuLine.append(cpuName, cpuExtra, el("span", "mem-spacer"), sourceChip);
+    const cpuGrid = el("div", "mem-grid");
+    const cpuCells = {};
+    for (const [key, label] of [["load", "CPU load"], ["clock", "Clock avg / max"], ["temp", "CPU temperature"], ["power", "CPU power"]]) {
+        const cell = el("div", "mem-cell");
+        cell.append(el("small", "", label), cpuCells[key] = el("b", "", "—"));
+        cpuCells[key].cell = cell;
+        cpuGrid.append(cell);
+    }
+    const coreBars = el("div", "mem-cores");
+    coreBars.title = "Load of every CPU thread (hover a bar for its clock).";
+    const systemCanvas = el("canvas", "mem-chart mem-chart-system");
+    const systemChartLegend = el("div", "mem-legend mem-chart-legend");
+    for (const [key, label] of [["load", "load %"], ["clock", "avg clock (% of fastest seen)"], ["temp", "temperature (0–100 °C)"]]) {
+        const item = el("i", "", `■ ${label}`);
+        item.style.color = SYSTEM_COLORS[key];
+        systemChartLegend.append(item);
+    }
+    const sensorBar = el("div", "mem-line");
+    const detailSelect = el("select", "mem-detail");
+    for (const [value, label] of [["basic", "Temperatures & fans"], ["all", "All sensors (power, voltages, clocks…)"]]) {
+        const option = el("option", "", label);
+        option.value = value;
+        detailSelect.append(option);
+    }
+    detailSelect.value = node.properties?.szandorSystemDetail === "all" ? "all" : "basic";
+    const sensorSummary = el("span", "mem-dim");
+    sensorBar.append(detailSelect, sensorSummary);
+    const sensorHint = el("div", "mem-hint");
+    const sensorScroll = el("div", "mem-scroll");
+    const sensorTable = el("table", "mem-table mem-sensor-table");
+    sensorScroll.append(sensorTable);
+    system.append(cpuLine, cpuGrid, coreBars, systemCanvas, systemChartLegend, sensorBar, sensorHint, sensorScroll);
+
     const message = el("div", "mem-message");
-    root.append(tabsRow, live, models, runs, message);
+    root.append(tabsRow, live, models, runs, system, message);
 
     root.addEventListener("pointerdown", e => {
         if (e.target.closest("button, select, canvas, .mem-scroll")) e.stopPropagation();
@@ -309,6 +372,10 @@ function createMonitor(node) {
         disposed: false,
         timer: 0,
         historyRequest: 0,
+        system: null,
+        systemPoints: [],
+        systemRequest: 0,
+        clockPeak: 0,
     };
 
     const refreshWidget = () => node.widgets?.find(w => w.name === "refresh");
@@ -327,8 +394,10 @@ function createMonitor(node) {
         live.hidden = tab !== "live";
         models.hidden = tab !== "models";
         runs.hidden = tab !== "runs";
+        system.hidden = tab !== "system";
         render();
         if (tab === "runs") loadHistory();
+        if (tab === "system") { renderSystem(); loadSystem(); }
     }
 
     // ── na żywo ──
@@ -713,6 +782,134 @@ function createMonitor(node) {
         drawRunChart();
     });
 
+    // ── system ──
+    function renderSystem() {
+        const s = state.system;
+        if (system.hidden || !s) return;
+        const cpu = s.cpu;
+        cpuName.textContent = cpu.name;
+        cpuExtra.textContent = [cpu.cores && `${cpu.cores} cores`, cpu.threads && `${cpu.threads} threads`,
+            isNum(cpu.process) ? `ComfyUI ${cpu.process.toFixed(0)}%` : ""].filter(Boolean).join(" · ");
+        cpuExtra.title = "ComfyUI = this process's CPU use as % of all threads.";
+
+        const clocks = cpu.clocks ?? [];
+        const fastest = clocks.length ? Math.max(...clocks) : NaN;
+        cpuCells.load.textContent = isNum(cpu.load) ? `${Math.round(cpu.load)}%` : "—";
+        cpuCells.load.cell.title = "Average load of all threads.";
+        cpuCells.clock.textContent = isNum(cpu.clock)
+            ? `${(cpu.clock / 1000).toFixed(1)} / ${formatGHz(fastest)}` : "—";
+        cpuCells.clock.cell.title = isNum(cpu.clock)
+            ? [`Average effective clock of all threads: ${formatGHz(cpu.clock)}`,
+                `Fastest thread: ${formatGHz(fastest)} (CPU ${clocks.indexOf(fastest)})`,
+                isNum(cpu.base_clock) ? `Base clock: ${formatGHz(cpu.base_clock)}` : "",
+                isNum(cpu.max_clock) ? `Maximum: ${formatGHz(cpu.max_clock)}` : "",
+                "Idle threads sleep at lower clocks, so the average is lower than the boost clock."].filter(Boolean).join("\n")
+            : "The CPU clock could not be read.";
+        const hot = isNum(cpu.temp) && cpu.temp >= HOT_CPU;
+        cpuCells.temp.textContent = isNum(cpu.temp) ? `${cpu.temp.toFixed(1)} °C` : "—";
+        cpuCells.temp.cell.classList.toggle("mem-warn", hot);
+        cpuCells.temp.cell.title = isNum(cpu.temp)
+            ? `${cpu.temp_label}${isNum(cpu.temp_max) ? ` · max ${cpu.temp_max.toFixed(1)} °C` : ""}`
+                + (hot ? "\nHot — the CPU may lower its clocks." : "")
+            : "Needs a sensor source — see the note below.";
+        cpuCells.power.textContent = isNum(cpu.power) ? formatSensor("power", cpu.power) : "—";
+        cpuCells.power.cell.title = isNum(cpu.power) ? cpu.power_label : "Needs a sensor source — see the note below.";
+
+        coreBars.replaceChildren();
+        (cpu.loads ?? []).forEach((load, i) => {
+            const bar = el("span");
+            bar.style.height = `${Math.max(3, load)}%`;
+            bar.title = `CPU ${i}: ${Math.round(load)}%` + (isNum(clocks[i]) ? ` · ${formatGHz(clocks[i])}` : "");
+            coreBars.append(bar);
+        });
+        coreBars.hidden = !coreBars.childElementCount;
+
+        const sensors = s.sensors ?? {};
+        sourceChip.textContent = sensors.source ?? "no sensors";
+        sourceChip.title = sensors.source ? `Temperatures and fans from ${sensors.source}.` : (sensors.hint ?? "");
+        sensorHint.textContent = sensors.hint ?? "";
+        sensorHint.hidden = !sensors.hint;
+        renderSensors(sensors.groups ?? []);
+        drawSystemChart();
+    }
+
+    function renderSensors(groups) {
+        sensorTable.replaceChildren();
+        const readings = groups.flatMap(g => g.readings);
+        const fans = readings.filter(r => r.type === "fan");
+        const spinning = fans.filter(r => r.value > 0).length;
+        sensorSummary.textContent = readings.length
+            ? [`${readings.filter(r => r.type === "temperature").length} temperatures`,
+                fans.length ? `${spinning} / ${fans.length} fans spinning` : ""].filter(Boolean).join(" · ") : "";
+        sensorBar.hidden = !readings.length && !state.system?.sensors?.source;
+        sensorScroll.hidden = !readings.length;
+        if (!readings.length) return;
+        const head = sensorTable.createTHead().insertRow();
+        for (const [text, title] of [["Sensor"], ["Now"], ["Min", "Lowest since the sensor tool started."],
+            ["Max", "Highest since the sensor tool started."]]) {
+            const th = el("th", "", text);
+            if (title) th.title = title;
+            head.append(th);
+        }
+        const body = sensorTable.createTBody();
+        for (const group of groups) {
+            const title = body.insertRow();
+            title.className = "mem-group";
+            const cell = title.insertCell();
+            cell.colSpan = 4;
+            cell.textContent = group.name;
+            for (const r of group.readings) {
+                const row = body.insertRow();
+                row.classList.toggle("mem-idle", r.type === "fan" && !(r.value > 0));
+                row.classList.toggle("mem-top", r.type === "temperature" && r.value >= HOT_CPU);
+                row.insertCell().textContent = r.label;
+                for (const value of [r.value, r.min, r.max]) row.insertCell().textContent = formatSensor(r.type, value, r.unit);
+            }
+        }
+    }
+
+    function drawSystemChart() {
+        if (system.hidden) return;
+        const { ctx, width, height } = prepareCanvas(systemCanvas);
+        const left = 30;
+        drawGrid(ctx, width, height, left, [[0, "0%"], [0.5, "50%"], [1, "100%"]]);
+        const points = state.systemPoints;
+        if (points.length < 2) return;
+        const t0 = points[0].t;
+        const span = Math.max(1, points.at(-1).t - t0);
+        const xOf = t => left + ((t - t0) / span) * (width - left - 2);
+        const yOf = fraction => 4 + (height - 18) * (1 - Math.min(1, Math.max(0, fraction)));
+        const peak = state.clockPeak || 1;
+        for (const [key, color, scale] of [["load", SYSTEM_COLORS.load, 100], ["clock", SYSTEM_COLORS.clock, peak],
+            ["temp", SYSTEM_COLORS.temp, 100]]) {
+            drawLine(ctx, points.map(p => [p.t, p[key] / scale]), color, xOf, yOf);
+        }
+        ctx.fillStyle = "#6f7a8d";
+        ctx.fillText(`last ${formatSeconds(span)}`, width - 90, height - 3);
+    }
+
+    async function loadSystem() {
+        const request = ++state.systemRequest;
+        try {
+            const res = await api.fetchApi(`/szandor/memory/system?detail=${detailSelect.value}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            if (state.disposed || request !== state.systemRequest) return;
+            state.system = data;
+            const cpu = data.cpu;
+            const fastest = Math.max(0, ...(cpu.clocks ?? []));
+            state.clockPeak = Math.max(state.clockPeak, fastest, cpu.max_clock || 0);
+            const last = state.systemPoints.at(-1);
+            // Przerwa (inna zakładka, ukryta karta) zaczyna wykres od nowa zamiast rysować długą prostą.
+            if (last && data.time - last.t > Math.max(10, (intervalMs() / 1000) * 5)) state.systemPoints = [];
+            state.systemPoints.push({ t: data.time, load: cpu.load ?? NaN, clock: cpu.clock ?? NaN, temp: cpu.temp ?? NaN });
+            if (state.systemPoints.length > LIVE_POINTS) state.systemPoints.splice(0, state.systemPoints.length - LIVE_POINTS);
+            renderSystem();
+        } catch (err) {
+            if (!state.disposed) showMessage(`⚠ Could not read the CPU / sensors: ${err?.message ?? err}`, true);
+        }
+    }
+
     // ── dane i akcje ──
     function render() {
         renderLive();
@@ -757,6 +954,7 @@ function createMonitor(node) {
                 state.serial = data.serial;
                 render();
                 if (state.tab === "runs" && (serialChanged || data.busy)) loadHistory();
+                if (state.tab === "system") loadSystem();
             } catch (err) {
                 if (state.disposed) return;
                 state.stats = null;
@@ -796,6 +994,10 @@ function createMonitor(node) {
     for (const [tab, b] of Object.entries(tabs)) b.addEventListener("click", () => setTab(tab));
     runSelect.addEventListener("change", () => { state.runKey = runSelect.value; renderRuns(); });
     metricSelect.addEventListener("change", renderRuns);
+    detailSelect.addEventListener("change", () => {
+        if (node.properties) node.properties.szandorSystemDetail = detailSelect.value;
+        loadSystem();
+    });
     csvButton.addEventListener("click", () => {
         const run = selectedRun();
         if (!run) return;
@@ -827,6 +1029,7 @@ function createMonitor(node) {
             clearTimeout(state.timer);
         },
         restoreTab() {
+            detailSelect.value = node.properties?.szandorSystemDetail === "all" ? "all" : "basic";
             setTab(node.properties?.szandorMemoryTab || state.tab);
         },
     };

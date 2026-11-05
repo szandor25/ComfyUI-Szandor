@@ -87,6 +87,23 @@
 .szandor-mem .mem-mini span.m-ram { background: #73e0ba; }
 .szandor-mem .mem-tag.mem-split { background: #3d3020; color: #ffc879; cursor: help; }
 .szandor-mem .mem-run-select { flex: 1; }
+.szandor-mem .mem-cell.mem-warn { border-color: #8a6a2a; background: #2a2416; }
+.szandor-mem .mem-cell.mem-warn b { color: #ffc879; }
+.szandor-mem .mem-cores {
+    display: flex; align-items: flex-end; gap: 1px; height: 36px; flex-shrink: 0; padding: 2px;
+    background: #0e1015; border: 1px solid #2d3340; border-radius: 4px; cursor: help;
+}
+.szandor-mem .mem-cores span { flex: 1; min-width: 2px; background: #8bc9ff; border-radius: 1px 1px 0 0; }
+.szandor-mem .mem-chart-system { flex: 0 0 90px; }
+.szandor-mem .mem-hint {
+    flex-shrink: 0; padding: 4px 7px; border-radius: 5px; background: #1d2230; color: #a9b5c9;
+    font-size: 11px; white-space: normal;
+}
+.szandor-mem .mem-sensor-table th:nth-child(n+2),
+.szandor-mem .mem-sensor-table td:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; }
+.szandor-mem .mem-sensor-table td:first-child { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.szandor-mem .mem-table tr.mem-group td { background: #1a1f2b; color: #e0acff; font-weight: 600; white-space: normal; }
+.szandor-mem .mem-table tr.mem-idle td { color: #6f7a8d; }
 .szandor-mem .mem-hover { color: #8490a5; }
 .szandor-mem .mem-message { flex-shrink: 0; min-height: 15px; font-size: 11px; color: #8490a5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .szandor-mem .mem-message.mem-warn { color: #ffb35c; }
